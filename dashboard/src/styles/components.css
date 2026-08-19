@@ -5,9 +5,19 @@
 .brand-mark img { width: 100%; height: 100%; object-fit: contain; }
 .icon-button { width: 36px; height: 36px; padding: 0; border: 1px solid #d8dfdb; border-radius: 7px; background: #fff; color: #35403b; display: inline-grid; place-items: center; }
 .navigation { margin-top: 16px; }
-.navigation .n-menu-item-content { border-radius: 7px; color: #c7d0cc; }
-.navigation .n-menu-item-content:hover { background: #2b3531; color: #fff; }
-.navigation .n-menu-item-content--selected { background: #d8f0e5 !important; color: #174f3e !important; font-weight: 650; }
+.navigation .n-menu-item-content { border-radius: 7px; color: #d8e3de !important; --n-item-text-color: #d8e3de; --n-item-icon-color: #b9c9c1; }
+.navigation .n-menu-item-content .n-menu-item-content-header,
+.navigation .n-menu-item-content .n-menu-item-content__icon,
+.navigation .n-menu-item-content .n-menu-item-content-header a { color: #d8e3de !important; }
+.navigation .n-menu-item-content .n-menu-item-content__icon { color: #b9c9c1 !important; }
+.navigation .n-menu-item-content:hover { background: #2b3531 !important; color: #fff !important; --n-item-text-color: #fff; --n-item-icon-color: #fff; }
+.navigation .n-menu-item-content:hover .n-menu-item-content-header,
+.navigation .n-menu-item-content:hover .n-menu-item-content__icon,
+.navigation .n-menu-item-content:hover .n-menu-item-content-header a { color: #fff !important; }
+.navigation .n-menu-item-content--selected { background: #d8f0e5 !important; color: #174f3e !important; --n-item-text-color: #174f3e; --n-item-icon-color: #176c52; font-weight: 650; }
+.navigation .n-menu-item-content--selected .n-menu-item-content-header,
+.navigation .n-menu-item-content--selected .n-menu-item-content__icon,
+.navigation .n-menu-item-content--selected .n-menu-item-content-header a { color: #174f3e !important; }
 .sidebar-footer { margin-top: auto; height: 52px; padding: 0 20px; display: flex; align-items: center; gap: 8px; color: #aab8b1; font-size: 12px; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #4fca89; box-shadow: 0 0 0 3px rgba(79, 202, 137, .12); }
 .status-dot.offline { background: #d06b6b; box-shadow: 0 0 0 3px rgba(208, 107, 107, .12); }
