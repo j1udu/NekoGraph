@@ -33,6 +33,7 @@ from nekograph.agent.profiles import (
 from nekograph.bootstrap import RuntimeResources, open_runtime_resources
 from nekograph.config import Settings
 from nekograph.models import MessageSegment
+from nekograph.protocols.onebot_v11.actions import ActionRecord
 from nekograph.protocols.web_chat import WebChatAdapter
 from nekograph.scheduling import ScheduledTaskInput, SchedulingError
 from nekograph.web.logs import DashboardLogHandler
@@ -167,6 +168,7 @@ def create_dashboard_app(
         context = _context(request)
         profiles = await context.resources.model_profiles.list()
         active = context.resources.models.active_info
+        connected_bots = context.resources.onebot_hub.connected_bots()
         return {
             "version": __version__,
             "started_at": context.started_at,
@@ -184,8 +186,19 @@ def create_dashboard_app(
             "tool_count": len(context.resources.tools.definitions()),
             "checkpoint": "sqlite",
             "gateway": "dashboard_only",
+            "connected_bot_count": len(connected_bots),
             "scheduled_task_count": len(await context.resources.scheduler.list()),
         }
+
+    @app.get("/api/onebot/bots")
+    async def connected_onebot_bots(request: Request) -> list[dict[str, object]]:
+        return list(_context(request).resources.onebot_hub.connected_bots())
+
+    @app.get("/api/onebot/actions", response_model=list[ActionRecord])
+    async def recent_onebot_actions(
+        request: Request, limit: Annotated[int, Query(ge=1, le=500)] = 100
+    ) -> list[ActionRecord]:
+        return await _context(request).resources.onebot_actions.recent(limit)
 
     @app.get("/api/scheduled-task-handlers")
     async def scheduled_task_handlers(request: Request) -> list[str]:
@@ -408,6 +421,9 @@ def create_dashboard_app(
                 "port": current.port,
                 "path": current.websocket_path,
                 "access_token_configured": bool(current.access_token),
+                "action_timeout_seconds": current.action_timeout_seconds,
+                "action_max_concurrency": current.onebot_action_max_concurrency,
+                "send_min_interval_seconds": current.onebot_send_min_interval_seconds,
             },
             "dashboard": {
                 "host": current.dashboard_host,

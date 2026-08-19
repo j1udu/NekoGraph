@@ -34,6 +34,9 @@ async def run(settings: Settings) -> None:
         application = resources.application()
         gateway = ReverseWebSocketGateway(
             application=application,
+            hub=resources.onebot_hub,
+            sender=resources.onebot_sender,
+            events=resources.events,
             host=settings.host,
             port=settings.port,
             path=settings.websocket_path,
@@ -85,6 +88,9 @@ async def run_serve(settings: Settings) -> None:
         application = resources.application()
         gateway = ReverseWebSocketGateway(
             application=application,
+            hub=resources.onebot_hub,
+            sender=resources.onebot_sender,
+            events=resources.events,
             host=settings.host,
             port=settings.port,
             path=settings.websocket_path,

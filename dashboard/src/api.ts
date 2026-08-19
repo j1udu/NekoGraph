@@ -12,6 +12,8 @@ import type {
   ScheduledTask,
   ScheduledTaskRequest,
   TaskRun,
+  ConnectedOneBot,
+  OneBotActionRecord,
 } from './types'
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -35,6 +37,8 @@ export const api = {
   tools: () => request<ToolInfo[]>('/api/tools'),
   config: () => request<DashboardConfig>('/api/config'),
   logs: (limit = 100) => request<LogEntry[]>(`/api/logs?limit=${limit}`),
+  onebotBots: () => request<ConnectedOneBot[]>('/api/onebot/bots'),
+  onebotActions: (limit = 100) => request<OneBotActionRecord[]>(`/api/onebot/actions?limit=${limit}`),
   history: (conversationId: string) =>
     request<HistoryMessage[]>(`/api/chat/${conversationId}/messages`),
   send: (conversationId: string, text: string) =>

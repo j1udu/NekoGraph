@@ -17,6 +17,7 @@ def dashboard_settings(tmp_path: Path) -> Settings:
         tool_execution_ledger_path=tmp_path / "tool-executions.sqlite",
         model_profiles_path=tmp_path / "model-profiles.sqlite",
         scheduled_tasks_path=tmp_path / "scheduled-tasks.sqlite",
+        onebot_action_ledger_path=tmp_path / "onebot-actions.sqlite",
         tool_sandbox_path=tmp_path / "tool-sandbox",
         dashboard_port=0,
         access_token=None,
@@ -42,6 +43,8 @@ async def test_dashboard_status_tools_config_and_chat(tmp_path: Path) -> None:
         status = await client.get("/api/status")
         tools = await client.get("/api/tools")
         config = await client.get("/api/config")
+        bots = await client.get("/api/onebot/bots")
+        actions = await client.get("/api/onebot/actions")
         reply = await client.post(
             "/api/chat/browser-test/messages",
             json={"text": "hello dashboard"},
@@ -56,6 +59,11 @@ async def test_dashboard_status_tools_config_and_chat(tmp_path: Path) -> None:
     assert status_data["model"]["model"] == "fake"
     assert status_data["model_profile_count"] == 0
     assert status_data["tool_count"] == 2
+    assert status_data["connected_bot_count"] == 0
+    assert bots.status_code == 200
+    assert bots.json() == []
+    assert actions.status_code == 200
+    assert actions.json() == []
 
     assert tools.status_code == 200
     tool_data = cast(list[dict[str, Any]], tools.json())
@@ -70,6 +78,7 @@ async def test_dashboard_status_tools_config_and_chat(tmp_path: Path) -> None:
     assert config_data["onebot"]["access_token_configured"] is False
     assert "access_token" not in config_data["onebot"]
     assert "api_key" not in str(config_data)
+    assert config_data["onebot"]["action_max_concurrency"] == 16
 
     assert reply.status_code == 200
     assert reply.json()["content"] == "Fake response turn 1: hello dashboard"
@@ -108,6 +117,7 @@ async def test_dashboard_scheduled_task_lifecycle(tmp_path: Path) -> None:
 
     assert handlers.status_code == 200
     assert "core.diagnostic" in handlers.json()
+    assert "core.onebot_send" in handlers.json()
     assert created.status_code == 201
     assert listed.status_code == 200
     assert listed.json()[0]["handler_name"] == "core.diagnostic"

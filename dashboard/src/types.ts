@@ -15,6 +15,29 @@ export interface RuntimeStatus {
   tool_count: number
   checkpoint: string
   gateway: string
+  connected_bot_count: number
+  scheduled_task_count: number
+}
+
+export interface ConnectedOneBot {
+  bot_id: string
+  connected_at: string
+}
+
+export interface OneBotActionRecord {
+  action_id: string
+  bot_id: string
+  action: string
+  risk: 'safe' | 'sensitive' | 'dangerous'
+  source: string
+  correlation_id: string | null
+  target_summary: Record<string, unknown>
+  status: 'running' | 'completed' | 'failed'
+  retcode: number | null
+  error: string | null
+  started_at: string
+  finished_at: string | null
+  duration_ms: number | null
 }
 
 export interface ModelProfile {
@@ -84,6 +107,9 @@ export interface DashboardConfig {
     port: number
     path: string
     access_token_configured: boolean
+    action_timeout_seconds: number
+    action_max_concurrency: number
+    send_min_interval_seconds: number
   }
   dashboard: {
     host: string

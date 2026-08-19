@@ -6,12 +6,15 @@ from nekograph.application.commands import (
     CommandRegistry,
     register_core_commands,
 )
+from nekograph.application.events import EventDisposition, EventRouter
 from nekograph.application.service import MessageApplication
 
 __all__ = [
     "CommandDefinition",
     "CommandRegistrationError",
     "CommandRegistry",
+    "EventDisposition",
+    "EventRouter",
     "register_core_commands",
     "MessageApplication",
 ]

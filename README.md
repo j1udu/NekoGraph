@@ -12,6 +12,7 @@ A LangGraph-native QQ Agent Framework powered by NapCat and OneBot v11.
 - 本地终端聊天和 Vue 3 + FastAPI 管理界面
 - OpenAI-compatible 多模型配置、导入与热切换
 - SQLite 持久化定时任务（Cron、间隔、单次）、执行历史与 Dashboard 管理
+- 统一 OneBot 主动发送、查询与群管理动作，支持连接复用、限流和 SQLite 审计
 
 ## 本地部署
 

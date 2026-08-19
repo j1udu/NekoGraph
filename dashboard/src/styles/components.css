@@ -24,7 +24,7 @@
 .panel { background: var(--ng-panel-bg); border: 1px solid var(--ng-border); border-radius: var(--ng-radius); }
 .panel-header { min-height: 57px; padding: 0 18px; border-bottom: 1px solid #e7ebe9; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .panel-header h2 { margin: 0; font-size: 15px; }
-.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 13px; margin-bottom: 18px; }
+.metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 13px; margin-bottom: 18px; }
 .metric { min-height: 112px; padding: 17px; background: var(--ng-panel-bg); border: 1px solid var(--ng-border); border-radius: var(--ng-radius); }
 .metric-top { display: flex; align-items: center; justify-content: space-between; color: #65706b; font-size: 12px; }
 .metric strong { display: block; margin-top: 15px; font-size: 23px; line-height: 1.1; overflow-wrap: anywhere; }

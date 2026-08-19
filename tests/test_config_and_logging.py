@@ -23,6 +23,9 @@ def test_settings_defaults_are_safe_for_local_development() -> None:
     assert settings.model_profiles_path == Path("data/model-profiles.sqlite")
     assert settings.scheduled_tasks_path == Path("data/scheduled-tasks.sqlite")
     assert settings.scheduled_task_max_concurrency == 8
+    assert settings.onebot_action_ledger_path == Path("data/onebot-actions.sqlite")
+    assert settings.onebot_action_max_concurrency == 16
+    assert settings.onebot_send_min_interval_seconds == 0.5
     assert settings.dashboard_host == "127.0.0.1"
     assert settings.dashboard_port == 5190
     assert settings.model_backend is ModelBackend.FAKE

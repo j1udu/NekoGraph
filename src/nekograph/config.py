@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     websocket_path: str = "/onebot/v11/ws"
     access_token: str | None = None
     action_timeout_seconds: float = Field(default=10.0, gt=0)
+    onebot_action_ledger_path: Path = Path("data/onebot-actions.sqlite")
+    onebot_action_max_concurrency: int = Field(default=16, ge=1, le=100)
+    onebot_send_min_interval_seconds: float = Field(default=0.5, ge=0, le=60)
     checkpoint_path: Path = Path("data/checkpoints.sqlite")
     conversation_metadata_path: Path = Path("data/conversations.sqlite")
     group_conversation_mode: GroupConversationMode = GroupConversationMode.PER_USER

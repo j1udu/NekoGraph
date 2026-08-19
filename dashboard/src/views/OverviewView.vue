@@ -1,24 +1,35 @@
 <script setup lang="ts">
-import { Activity, Boxes, Clock3, Database, RefreshCw, Wrench } from '@lucide/vue'
+import { Activity, Boxes, Clock3, Database, RefreshCw, Send, Wrench } from '@lucide/vue'
 import { NButton, NDataTable, NEmpty, NSpin, NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 
 import { api } from '../api'
-import type { LogEntry } from '../types'
+import type { LogEntry, OneBotActionRecord } from '../types'
 import PageHeader from '../components/layout/PageHeader.vue'
 import { useRuntimeStore } from '../stores/runtime'
 
 const runtime = useRuntimeStore()
 const { status, loading } = storeToRefs(runtime)
 const logs = ref<LogEntry[]>([])
+const actions = ref<OneBotActionRecord[]>([])
 const error = ref('')
 const columns: DataTableColumns<LogEntry> = [
   { title: '时间', key: 'timestamp', render: (row) => time(row.timestamp) },
   { title: '级别', key: 'level', render: (row) => row.level },
   { title: '事件', key: 'event' },
   { title: '模块', key: 'logger' },
+]
+const actionColumns: DataTableColumns<OneBotActionRecord> = [
+  { title: '时间', key: 'started_at', render: (row) => time(row.started_at) },
+  { title: 'Bot', key: 'bot_id' },
+  { title: '动作', key: 'action' },
+  { title: '来源', key: 'source' },
+  {
+    title: '状态', key: 'status', render: (row) => row.status === 'completed' ? '成功' : row.status === 'failed' ? '失败' : '执行中',
+  },
+  { title: '耗时', key: 'duration_ms', render: (row) => row.duration_ms == null ? '—' : `${row.duration_ms} ms` },
 ]
 
 const uptime = computed(() => {
@@ -38,8 +49,11 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [, recent] = await Promise.all([runtime.refresh(), api.logs(8)])
+    const [, recent, recentActions] = await Promise.all([
+      runtime.refresh(), api.logs(8), api.onebotActions(8),
+    ])
     logs.value = recent.reverse()
+    actions.value = recentActions
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '加载失败'
   } finally {
@@ -81,6 +95,20 @@ onMounted(load)
           <strong>{{ uptime }}</strong>
           <small>{{ status.tool_count }} 个已注册工具</small>
         </div>
+        <div class="metric green">
+          <div class="metric-top"><span>在线 QQ Bot</span><Send :size="18" /></div>
+          <strong>{{ status.connected_bot_count }}</strong>
+          <small>OneBot 反向 WebSocket</small>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2>OneBot 动作</h2>
+          <Send :size="17" />
+        </div>
+        <NEmpty v-if="actions.length === 0" description="暂无主动发送或管理动作" />
+        <NDataTable v-else :columns="actionColumns" :data="actions" :row-key="(row) => row.action_id" :bordered="false" />
       </div>
 
       <div class="panel">

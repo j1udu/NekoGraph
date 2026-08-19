@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import AsyncGenerator, Iterable
+from contextlib import asynccontextmanager
 from pathlib import Path
 from socket import socket
 from typing import cast
@@ -14,6 +15,7 @@ from websockets.exceptions import ConnectionClosedError
 
 from nekograph.agent import FakeChatModel, LangGraphRuntime
 from nekograph.application.conversation import ConversationResolver
+from nekograph.application.events import EventDisposition, EventRouter
 from nekograph.application.service import MessageApplication
 from nekograph.application.wakeup import WakeupPolicy
 from nekograph.models import (
@@ -21,9 +23,16 @@ from nekograph.models import (
     ChatKind,
     ConversationRef,
     MessageSegment,
+    OneBotEvent,
     OneBotNoticeEvent,
     OutboundMessage,
     RunContext,
+)
+from nekograph.protocols.onebot_v11.actions import (
+    OneBotActionLedger,
+    OneBotActionTransport,
+    OneBotConnectionHub,
+    OneBotMessageSender,
 )
 from nekograph.protocols.onebot_v11.gateway import (
     OneBotActionError,
@@ -49,39 +58,41 @@ class EchoRuntime:
         return f"denied:{approval_id}"
 
 
-def make_gateway(*, token: str | None = None) -> ReverseWebSocketGateway:
-    application = MessageApplication(
+@asynccontextmanager
+async def open_gateway(
+    tmp_path: Path,
+    *,
+    application: MessageApplication | None = None,
+    token: str | None = None,
+    events: EventRouter | None = None,
+) -> AsyncGenerator[
+    tuple[ReverseWebSocketGateway, OneBotMessageSender, OneBotConnectionHub]
+]:
+    resolved_application = application or MessageApplication(
         runtime=EchoRuntime(),
         conversations=ConversationResolver(),
         wakeup=WakeupPolicy(),
     )
-    return ReverseWebSocketGateway(
-        application=application,
-        host="127.0.0.1",
-        port=0,
-        path="/onebot/v11/ws",
-        access_token=token,
-        action_timeout_seconds=0.5,
-    )
-
-
-def make_gateway_with_event_handler(
-    event_handler: Callable[[object], Awaitable[None]],
-) -> ReverseWebSocketGateway:
-    application = MessageApplication(
-        runtime=EchoRuntime(),
-        conversations=ConversationResolver(),
-        wakeup=WakeupPolicy(),
-    )
-    return ReverseWebSocketGateway(
-        application=application,
-        host="127.0.0.1",
-        port=0,
-        path="/onebot/v11/ws",
-        access_token=None,
-        action_timeout_seconds=0.5,
-        event_handler=event_handler,
-    )
+    hub = OneBotConnectionHub()
+    async with OneBotActionLedger.open(tmp_path / "onebot-actions.sqlite") as ledger:
+        sender = OneBotMessageSender(
+            OneBotActionTransport(hub, ledger), minimum_interval_seconds=0
+        )
+        yield (
+            ReverseWebSocketGateway(
+                application=resolved_application,
+                hub=hub,
+                sender=sender,
+                events=events or EventRouter(),
+                host="127.0.0.1",
+                port=0,
+                path="/onebot/v11/ws",
+                access_token=token,
+                action_timeout_seconds=0.5,
+            ),
+            sender,
+            hub,
+        )
 
 
 def fixture_text(name: str) -> str:
@@ -153,10 +164,8 @@ def test_outbound_preserves_typed_protocol_segments() -> None:
     ]
 
 
-async def test_reverse_websocket_event_action_and_echo_round_trip() -> None:
-    gateway = make_gateway()
-
-    async with gateway.run() as server:
+async def test_reverse_websocket_event_action_and_echo_round_trip(tmp_path: Path) -> None:
+    async with open_gateway(tmp_path) as (gateway, _, _), gateway.run() as server:
         port = server_port(server.sockets)
         headers = {"X-Self-ID": "10000", "X-Client-Role": "Universal"}
         async with connect(
@@ -184,10 +193,8 @@ async def test_reverse_websocket_event_action_and_echo_round_trip() -> None:
                 )
             )
 
-async def test_bad_payload_and_failed_action_do_not_close_gateway() -> None:
-    gateway = make_gateway()
-
-    async with gateway.run() as server:
+async def test_bad_payload_and_failed_action_do_not_close_gateway(tmp_path: Path) -> None:
+    async with open_gateway(tmp_path) as (gateway, _, _), gateway.run() as server:
         port = server_port(server.sockets)
         headers = {"X-Self-ID": "10000", "X-Client-Role": "Universal"}
         async with connect(
@@ -221,14 +228,15 @@ async def test_bad_payload_and_failed_action_do_not_close_gateway() -> None:
             )
 
 
-async def test_gateway_delivers_non_message_events_to_handler() -> None:
+async def test_gateway_delivers_non_message_events_to_handler(tmp_path: Path) -> None:
     received: list[object] = []
 
-    async def handle_event(event: object) -> None:
+    async def handle_event(event: OneBotEvent) -> None:
         received.append(event)
 
-    gateway = make_gateway_with_event_handler(handle_event)
-    async with gateway.run() as server:
+    events = EventRouter()
+    events.register(OneBotNoticeEvent, handle_event)
+    async with open_gateway(tmp_path, events=events) as (gateway, _, _), gateway.run() as server:
         port = server_port(server.sockets)
         headers = {"X-Self-ID": "10000", "X-Client-Role": "Universal"}
         async with connect(
@@ -258,10 +266,8 @@ async def test_gateway_delivers_non_message_events_to_handler() -> None:
     assert isinstance(received[0], OneBotNoticeEvent)
 
 
-async def test_gateway_rejects_invalid_access_token() -> None:
-    gateway = make_gateway(token="secret")
-
-    async with gateway.run() as server:
+async def test_gateway_rejects_invalid_access_token(tmp_path: Path) -> None:
+    async with open_gateway(tmp_path, token="secret") as (gateway, _, _), gateway.run() as server:
         port = server_port(server.sockets)
         headers = {
             "X-Self-ID": "10000",
@@ -314,15 +320,11 @@ async def test_reverse_websocket_interrupt_approve_and_sensitive_tool_round_trip
             conversations=ConversationResolver(),
             wakeup=WakeupPolicy(),
         )
-        gateway = ReverseWebSocketGateway(
-            application=application,
-            host="127.0.0.1",
-            port=0,
-            path="/onebot/v11/ws",
-            access_token=None,
-            action_timeout_seconds=0.5,
-        )
-        async with gateway.run() as server:
+        async with open_gateway(tmp_path, application=application) as (
+            gateway,
+            _,
+            _,
+        ), gateway.run() as server:
             port = server_port(server.sockets)
             headers = {"X-Self-ID": "10000", "X-Client-Role": "Universal"}
             async with connect(
@@ -357,8 +359,12 @@ async def test_reverse_websocket_interrupt_approve_and_sensitive_tool_round_trip
                 await connection.send(json.dumps(approve_payload))
                 completed_action = await receive_action(connection)
                 completed_params = cast(dict[str, object], completed_action["params"])
-                completed_segments = cast(list[dict[str, object]], completed_params["message"])
-                completed_text = cast(dict[str, str], completed_segments[-1]["data"])["text"]
+                completed_segments = cast(
+                    list[dict[str, object]], completed_params["message"]
+                )
+                completed_text = cast(dict[str, str], completed_segments[-1]["data"])[
+                    "text"
+                ]
 
                 assert completed_text == "gateway flow complete"
                 assert (sandbox / "gateway" / "result.txt").read_text() == "approved"
@@ -372,3 +378,62 @@ async def test_reverse_websocket_interrupt_approve_and_sensitive_tool_round_trip
                         }
                     )
                 )
+
+
+async def test_gateway_supports_connection_independent_active_send(tmp_path: Path) -> None:
+    async with open_gateway(tmp_path) as (gateway, sender, hub), gateway.run() as server:
+        port = server_port(server.sockets)
+        headers = {"X-Self-ID": "10000", "X-Client-Role": "Universal"}
+        async with connect(
+            f"ws://127.0.0.1:{port}/onebot/v11/ws", additional_headers=headers
+        ) as connection:
+            for _ in range(20):
+                if hub.is_connected("10000"):
+                    break
+                await asyncio.sleep(0.01)
+
+            send_task = asyncio.create_task(
+                sender.send(
+                    OutboundMessage.text(
+                        bot_id="10000",
+                        chat=Chat(kind=ChatKind.GROUP, chat_id="30001"),
+                        content="scheduled push",
+                    ),
+                    source="scheduled_task",
+                    correlation_id="run-1",
+                )
+            )
+            action = await receive_action(connection)
+            assert action["action"] == "send_group_msg"
+            await connection.send(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "retcode": 0,
+                        "data": {"message_id": 9002},
+                        "echo": action["echo"],
+                    }
+                )
+            )
+            receipt = await send_task
+
+    assert receipt.message_id == "9002"
+    assert receipt.chat_id == "30001"
+
+
+async def test_consumed_message_does_not_enter_application(tmp_path: Path) -> None:
+    events = EventRouter()
+
+    async def consume(event: OneBotEvent) -> EventDisposition:
+        return EventDisposition.CONSUMED
+
+    events.register(object, consume, priority=100)
+    async with open_gateway(tmp_path, events=events) as (gateway, _, _), gateway.run() as server:
+        port = server_port(server.sockets)
+        headers = {"X-Self-ID": "10000", "X-Client-Role": "Universal"}
+        async with connect(
+            f"ws://127.0.0.1:{port}/onebot/v11/ws", additional_headers=headers
+        ) as connection:
+            await connection.send(fixture_text("private_message.json"))
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(connection.recv(), timeout=0.05)

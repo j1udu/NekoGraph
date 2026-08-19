@@ -6,7 +6,7 @@ import asyncio
 import hmac
 import json
 import logging
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import cast
 from urllib.parse import urlsplit
@@ -15,14 +15,25 @@ from uuid import uuid4
 from websockets.asyncio.server import Server, ServerConnection, serve
 
 from nekograph.application import MessageApplication
+from nekograph.application.events import EventDisposition, EventRouter
 from nekograph.logging import fields
 from nekograph.models import (
-    ChatKind,
     InboundMessageEvent,
     MessageSentEvent,
     OneBotEvent,
-    OutboundMessage,
     UnknownOneBotEvent,
+)
+from nekograph.protocols.onebot_v11.actions import (
+    OneBotActionError as OneBotActionError,
+)
+from nekograph.protocols.onebot_v11.actions import (
+    OneBotActionFailedError,
+    OneBotActionTimeoutError,
+    OneBotConnectionHub,
+    OneBotMessageSender,
+)
+from nekograph.protocols.onebot_v11.actions import (
+    outbound_to_action as outbound_to_action,
 )
 from nekograph.protocols.onebot_v11.parser import (
     InvalidOneBotEventError,
@@ -30,28 +41,6 @@ from nekograph.protocols.onebot_v11.parser import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-class OneBotActionError(RuntimeError):
-    """An action timed out or OneBot returned a failed response."""
-
-
-def outbound_to_action(message: OutboundMessage) -> tuple[str, dict[str, object]]:
-    try:
-        target_id = int(message.chat.chat_id)
-    except ValueError as exc:
-        raise OneBotActionError(
-            f"OneBot target ID must be numeric: {message.chat.chat_id}"
-        ) from exc
-
-    segments: list[dict[str, object]] = []
-    if message.reply_to is not None:
-        segments.append({"type": "reply", "data": {"id": message.reply_to}})
-    segments.extend({"type": segment.kind, "data": segment.data} for segment in message.segments)
-
-    if message.chat.kind is ChatKind.PRIVATE:
-        return "send_private_msg", {"user_id": target_id, "message": segments}
-    return "send_group_msg", {"group_id": target_id, "message": segments}
 
 
 class _OneBotConnection:
@@ -73,7 +62,9 @@ class _OneBotConnection:
 
     async def call_action(self, action: str, params: dict[str, object]) -> dict[str, object]:
         echo = uuid4().hex
-        future = asyncio.get_running_loop().create_future()
+        future: asyncio.Future[dict[str, object]] = (
+            asyncio.get_running_loop().create_future()
+        )
         self._pending[echo] = future
         request = {"action": action, "params": params, "echo": echo}
         try:
@@ -81,21 +72,30 @@ class _OneBotConnection:
                 await self._socket.send(json.dumps(request, ensure_ascii=False))
             response = await asyncio.wait_for(future, timeout=self._timeout_seconds)
         except TimeoutError as exc:
-            raise OneBotActionError(f"OneBot action timed out: {action}") from exc
+            raise OneBotActionTimeoutError(
+                f"OneBot action timed out: {action}"
+            ) from exc
         finally:
             self._pending.pop(echo, None)
 
         if response.get("status") != "ok" or response.get("retcode") != 0:
-            raise OneBotActionError(
-                f"OneBot action failed: action={action}, retcode={response.get('retcode')!r}"
+            wording = response.get("wording")
+            raise OneBotActionFailedError(
+                action,
+                response.get("retcode"),
+                wording if isinstance(wording, str) else None,
             )
         return response
 
-    def fail_pending(self) -> None:
+    def fail_pending(self, error: Exception | None = None) -> None:
+        failure = error or ConnectionError("OneBot WebSocket disconnected")
         for future in self._pending.values():
             if not future.done():
-                future.set_exception(ConnectionError("OneBot WebSocket disconnected"))
+                future.set_exception(failure)
         self._pending.clear()
+
+    async def close(self, reason: str) -> None:
+        await self._socket.close(code=1012, reason=reason)
 
 
 class ReverseWebSocketGateway:
@@ -103,20 +103,24 @@ class ReverseWebSocketGateway:
         self,
         *,
         application: MessageApplication,
+        hub: OneBotConnectionHub,
+        sender: OneBotMessageSender,
+        events: EventRouter,
         host: str,
         port: int,
         path: str,
         access_token: str | None,
         action_timeout_seconds: float,
-        event_handler: Callable[[OneBotEvent], Awaitable[None]] | None = None,
     ) -> None:
         self._application = application
+        self._hub = hub
+        self._sender = sender
+        self._events = events
         self._host = host
         self._port = port
         self._path = path
         self._access_token = access_token
         self._action_timeout_seconds = action_timeout_seconds
-        self._event_handler = event_handler
 
     @asynccontextmanager
     async def run(self) -> AsyncGenerator[Server]:
@@ -143,44 +147,23 @@ class ReverseWebSocketGateway:
 
         connection = _OneBotConnection(socket, self._action_timeout_seconds)
         tasks: set[asyncio.Task[None]] = set()
+        await self._hub.attach(bot_id, connection)
         logger.info("onebot_connected", extra=fields(bot_id=bot_id, role=role))
         try:
             async for raw_message in socket:
-                try:
-                    text = (
-                        raw_message.decode("utf-8")
-                        if isinstance(raw_message, bytes)
-                        else raw_message
-                    )
-                    decoded = json.loads(text)
-                    if not isinstance(decoded, dict):
-                        raise ValueError("WebSocket payload must be a JSON object")
-                    payload = cast(dict[str, object], decoded)
-                except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
-                    logger.warning("onebot_invalid_json", extra=fields(bot_id=bot_id))
+                payload = self._decode_payload(raw_message, bot_id)
+                if payload is None:
                     continue
-
                 if connection.resolve_action_response(payload):
                     continue
-                try:
-                    event = parse_onebot_event(payload)
-                except InvalidOneBotEventError as exc:
-                    logger.warning(
-                        "onebot_event_invalid",
-                        extra=fields(bot_id=bot_id, error=str(exc)),
-                    )
+                event = self._parse_event(payload, bot_id)
+                if event is None:
                     continue
-
-                if event.bot_id != bot_id:
-                    logger.warning(
-                        "onebot_self_id_mismatch",
-                        extra=fields(header_bot_id=bot_id, event_bot_id=event.bot_id),
-                    )
-                    continue
-                task = asyncio.create_task(self._process_event(connection, event))
+                task = asyncio.create_task(self._process_event(event))
                 tasks.add(task)
                 task.add_done_callback(tasks.discard)
         finally:
+            await self._hub.detach(bot_id, connection)
             connection.fail_pending()
             for task in tasks:
                 task.cancel()
@@ -188,16 +171,49 @@ class ReverseWebSocketGateway:
                 await asyncio.gather(*tasks, return_exceptions=True)
             logger.info("onebot_disconnected", extra=fields(bot_id=bot_id))
 
-    async def _process_event(
-        self, connection: _OneBotConnection, event: OneBotEvent
-    ) -> None:
+    @staticmethod
+    def _decode_payload(
+        raw_message: str | bytes, bot_id: str
+    ) -> dict[str, object] | None:
         try:
+            text = (
+                raw_message.decode("utf-8")
+                if isinstance(raw_message, bytes)
+                else raw_message
+            )
+            decoded = json.loads(text)
+            if not isinstance(decoded, dict):
+                raise ValueError("WebSocket payload must be a JSON object")
+            return cast(dict[str, object], decoded)
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            logger.warning("onebot_invalid_json", extra=fields(bot_id=bot_id))
+            return None
+
+    @staticmethod
+    def _parse_event(payload: dict[str, object], bot_id: str) -> OneBotEvent | None:
+        try:
+            event = parse_onebot_event(payload)
+        except InvalidOneBotEventError as exc:
+            logger.warning(
+                "onebot_event_invalid",
+                extra=fields(bot_id=bot_id, error=str(exc)),
+            )
+            return None
+        if event.bot_id != bot_id:
+            logger.warning(
+                "onebot_self_id_mismatch",
+                extra=fields(header_bot_id=bot_id, event_bot_id=event.bot_id),
+            )
+            return None
+        return event
+
+    async def _process_event(self, event: OneBotEvent) -> None:
+        try:
+            disposition = await self._events.dispatch(event)
             if not isinstance(event, InboundMessageEvent) or isinstance(
                 event, MessageSentEvent
             ):
-                if self._event_handler is not None:
-                    await self._event_handler(event)
-                elif isinstance(event, UnknownOneBotEvent):
+                if isinstance(event, UnknownOneBotEvent):
                     logger.info(
                         "onebot_unknown_event",
                         extra=fields(
@@ -206,17 +222,17 @@ class ReverseWebSocketGateway:
                             event_type=event.event_type,
                         ),
                     )
-                else:
-                    logger.debug(
-                        "onebot_event_received_without_handler",
-                        extra=fields(bot_id=event.bot_id, event_type=type(event).__name__),
-                    )
+                return
+            if disposition is EventDisposition.CONSUMED:
                 return
             response = await self._application.handle(event)
             if response is None:
                 return
-            action, params = outbound_to_action(response)
-            await connection.call_action(action, params)
+            await self._sender.send(
+                response,
+                source="message_reply",
+                correlation_id=event.message.message_id,
+            )
         except asyncio.CancelledError:
             raise
         except Exception:

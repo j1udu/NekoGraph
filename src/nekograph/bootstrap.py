@@ -21,11 +21,21 @@ from nekograph.agent import (
 from nekograph.application.commands import CommandRegistry, register_core_commands
 from nekograph.application.conversation import ConversationResolver
 from nekograph.application.conversation_metadata import ConversationMetadataStore
+from nekograph.application.events import EventRouter
 from nekograph.application.scheduler import ConversationScheduler
 from nekograph.application.service import MessageApplication
 from nekograph.application.wakeup import WakeupPolicy
 from nekograph.config import ModelBackend, Settings
 from nekograph.plugins import Plugin, PluginManager
+from nekograph.protocols.onebot_v11.actions import (
+    OneBotActionLedger,
+    OneBotActionTransport,
+    OneBotConnectionHub,
+    OneBotManagementService,
+    OneBotMessageSender,
+    OneBotQueryService,
+    ScheduledOneBotMessage,
+)
 from nekograph.scheduling import SchedulerRuntime, TaskHandlerContext, TaskHandlerRegistry
 from nekograph.tools import ToolExecutionContext, ToolRegistry, build_core_tool_registry
 
@@ -77,6 +87,12 @@ class RuntimeResources:
     plugins: PluginManager
     conversation_metadata: ConversationMetadataStore
     scheduler: SchedulerRuntime
+    onebot_hub: OneBotConnectionHub
+    onebot_sender: OneBotMessageSender
+    onebot_queries: OneBotQueryService
+    onebot_management: OneBotManagementService
+    onebot_actions: OneBotActionLedger
+    events: EventRouter
 
     def application(self, *, conversation_namespace: str = "qq:v1") -> MessageApplication:
         return MessageApplication(
@@ -108,6 +124,8 @@ async def open_runtime_resources(
         allow_dangerous=settings.allow_dangerous_tools,
     )
     task_handlers = TaskHandlerRegistry()
+    onebot_hub = OneBotConnectionHub()
+    events = EventRouter()
 
     async def diagnostic_handler(context: TaskHandlerContext) -> None:
         logger.info(
@@ -122,40 +140,68 @@ async def open_runtime_resources(
         ConversationMetadataStore.open(
             settings.conversation_metadata_path
         ) as conversation_metadata,
-        SchedulerRuntime.open(
+        OneBotActionLedger.open(settings.onebot_action_ledger_path) as onebot_actions,
+    ):
+        onebot_transport = OneBotActionTransport(
+            onebot_hub,
+            onebot_actions,
+            max_concurrency=settings.onebot_action_max_concurrency,
+        )
+        onebot_sender = OneBotMessageSender(
+            onebot_transport,
+            minimum_interval_seconds=settings.onebot_send_min_interval_seconds,
+        )
+        onebot_queries = OneBotQueryService(onebot_transport)
+        onebot_management = OneBotManagementService(onebot_transport)
+
+        async def onebot_send_handler(context: TaskHandlerContext) -> None:
+            payload = ScheduledOneBotMessage.model_validate(dict(context.payload))
+            await onebot_sender.send(
+                payload.outbound(),
+                source="scheduled_task",
+                correlation_id=context.run_id,
+            )
+
+        task_handlers.register("core.onebot_send", onebot_send_handler)
+        async with SchedulerRuntime.open(
             settings.scheduled_tasks_path,
             task_handlers,
             max_concurrency=settings.scheduled_task_max_concurrency,
-        ) as scheduler,
-    ):
-        fallback_model, fallback_info = fallback
-        models = ModelController(
-            store=model_profiles,
-            fallback=ModelHandle(fallback_model),
-            fallback_info=fallback_info,
-        )
-        await models.initialize()
-        try:
-            async with LangGraphRuntime.open(
-                checkpoint_path=settings.checkpoint_path,
-                model=models,
-                tools=tools,
-                tool_context=tool_context,
-                execution_ledger_path=settings.tool_execution_ledger_path,
-                approval_ttl_seconds=settings.tool_approval_ttl_seconds,
-            ) as runtime:
-                register_core_commands(commands, runtime)
-                yield RuntimeResources(
-                    settings=settings,
-                    runtime=runtime,
-                    models=models,
-                    model_profiles=model_profiles,
+        ) as scheduler:
+            fallback_model, fallback_info = fallback
+            models = ModelController(
+                store=model_profiles,
+                fallback=ModelHandle(fallback_model),
+                fallback_info=fallback_info,
+            )
+            await models.initialize()
+            try:
+                async with LangGraphRuntime.open(
+                    checkpoint_path=settings.checkpoint_path,
+                    model=models,
                     tools=tools,
-                    commands=commands,
-                    plugins=plugin_manager,
-                    conversation_metadata=conversation_metadata,
-                    scheduler=scheduler,
-                )
-        finally:
-            await plugin_manager.shutdown()
-            await models.aclose()
+                    tool_context=tool_context,
+                    execution_ledger_path=settings.tool_execution_ledger_path,
+                    approval_ttl_seconds=settings.tool_approval_ttl_seconds,
+                ) as runtime:
+                    register_core_commands(commands, runtime)
+                    yield RuntimeResources(
+                        settings=settings,
+                        runtime=runtime,
+                        models=models,
+                        model_profiles=model_profiles,
+                        tools=tools,
+                        commands=commands,
+                        plugins=plugin_manager,
+                        conversation_metadata=conversation_metadata,
+                        scheduler=scheduler,
+                        onebot_hub=onebot_hub,
+                        onebot_sender=onebot_sender,
+                        onebot_queries=onebot_queries,
+                        onebot_management=onebot_management,
+                        onebot_actions=onebot_actions,
+                        events=events,
+                    )
+            finally:
+                await plugin_manager.shutdown()
+                await models.aclose()
