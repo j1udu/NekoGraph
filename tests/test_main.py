@@ -5,9 +5,16 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr
 
-from nekograph.__main__ import open_configured_model
+from nekograph.__main__ import open_configured_model, parse_args
 from nekograph.agent import FakeChatModel, OpenAICompatibleChatModel
 from nekograph.config import ModelBackend, Settings
+
+
+def test_cli_defaults_to_gateway_and_supports_local_chat() -> None:
+    assert parse_args([]).mode == "gateway"
+    assert parse_args(["gateway"]).mode == "gateway"
+    assert parse_args(["chat"]).mode == "chat"
+    assert parse_args(["dashboard"]).mode == "dashboard"
 
 
 async def test_model_lifecycle_selects_fake_backend(

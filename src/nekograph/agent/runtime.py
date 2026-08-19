@@ -4,14 +4,14 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Sequence
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import cast
 
 import aiosqlite
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
@@ -182,3 +182,11 @@ class LangGraphRuntime:
     async def reset(self, conversation: ConversationRef) -> None:
         await self._saver.adelete_thread(conversation.thread_id)
         await self._ledger.clear_conversation(conversation.conversation_id)
+
+    async def history(self, conversation: ConversationRef) -> tuple[BaseMessage, ...]:
+        snapshot = await self._graph.aget_state(self._config(conversation))
+        messages = snapshot.values.get("messages")
+        if not isinstance(messages, (list, tuple)):
+            return ()
+        items = cast(Sequence[object], messages)
+        return tuple(message for message in items if isinstance(message, BaseMessage))

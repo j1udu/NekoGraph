@@ -11,5 +11,6 @@ __pycache__/
 dist/
 build/
 docs/
+dashboard/node_modules/
 data/*.sqlite*
 data/tool-sandbox/

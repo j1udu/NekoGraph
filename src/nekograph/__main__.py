@@ -4,71 +4,34 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncGenerator
+from argparse import ArgumentParser, Namespace
+from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 
-from nekograph.agent import (
-    ChatModel,
-    FakeChatModel,
-    LangGraphRuntime,
-    OpenAICompatibleChatModel,
-    OpenAICompatibleConfig,
-)
-from nekograph.application.conversation import ConversationResolver
-from nekograph.application.scheduler import ConversationScheduler
-from nekograph.application.service import MessageApplication
-from nekograph.application.wakeup import WakeupPolicy
-from nekograph.config import ModelBackend, Settings
+import uvicorn
+
+from nekograph.agent import ChatModel
+from nekograph.bootstrap import open_configured_model as open_model_with_info
+from nekograph.bootstrap import open_runtime_resources
+from nekograph.config import Settings
 from nekograph.logging import configure_logging, fields
+from nekograph.protocols.local_console import LocalConsoleAdapter
 from nekograph.protocols.onebot_v11.gateway import ReverseWebSocketGateway
-from nekograph.tools import ToolExecutionContext, build_core_tool_registry
+from nekograph.web import create_dashboard_app
 
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def open_configured_model(settings: Settings) -> AsyncGenerator[ChatModel]:
-    if settings.model_backend is ModelBackend.FAKE:
-        logger.warning("fake_model_active")
-        yield FakeChatModel()
-        return
-
-    assert settings.llm_model is not None
-    assert settings.llm_api_key is not None
-    config = OpenAICompatibleConfig(
-        model=settings.llm_model,
-        base_url=settings.llm_base_url,
-        api_key=settings.llm_api_key.get_secret_value(),
-        temperature=settings.llm_temperature,
-        timeout_seconds=settings.llm_timeout_seconds,
-    )
-    async with OpenAICompatibleChatModel(config) as model:
+    async with open_model_with_info(settings) as configured:
+        model, _ = configured
         yield model
 
 
 async def run(settings: Settings) -> None:
-    tools = build_core_tool_registry(settings.tool_sandbox_path)
-    tool_context = ToolExecutionContext(
-        permissions=frozenset(settings.tool_permissions),
-        allow_dangerous=settings.allow_dangerous_tools,
-    )
-    async with (
-        open_configured_model(settings) as model,
-        LangGraphRuntime.open(
-            checkpoint_path=settings.checkpoint_path,
-            model=model,
-            tools=tools,
-            tool_context=tool_context,
-            execution_ledger_path=settings.tool_execution_ledger_path,
-            approval_ttl_seconds=settings.tool_approval_ttl_seconds,
-        ) as runtime,
-    ):
-        application = MessageApplication(
-            runtime=runtime,
-            conversations=ConversationResolver(settings.group_conversation_mode),
-            wakeup=WakeupPolicy(settings.group_wake_prefixes),
-            scheduler=ConversationScheduler(),
-        )
+    async with open_runtime_resources(settings) as resources:
+        application = resources.application()
         gateway = ReverseWebSocketGateway(
             application=application,
             host=settings.host,
@@ -90,10 +53,51 @@ async def run(settings: Settings) -> None:
             await server.serve_forever()
 
 
-def main() -> None:
+async def run_chat(settings: Settings) -> None:
+    async with open_runtime_resources(settings) as resources:
+        application = resources.application(conversation_namespace="local:v1")
+        logger.info(
+            "local_chat_started",
+            extra=fields(model_backend=settings.model_backend),
+        )
+        await LocalConsoleAdapter(application).run()
+
+
+async def run_dashboard(settings: Settings) -> None:
+    server = uvicorn.Server(
+        uvicorn.Config(
+            create_dashboard_app(settings),
+            host=settings.dashboard_host,
+            port=settings.dashboard_port,
+            log_config=None,
+        )
+    )
+    await server.serve()
+
+
+def parse_args(argv: Sequence[str] | None = None) -> Namespace:
+    parser = ArgumentParser(prog="nekograph")
+    parser.add_argument(
+        "mode",
+        nargs="?",
+        choices=("gateway", "chat", "dashboard"),
+        default="gateway",
+        help="run the OneBot gateway (default), local chat, or management dashboard",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: Sequence[str] | None = None) -> None:
     configure_logging()
+    args = parse_args(argv)
     try:
-        asyncio.run(run(Settings()))
+        settings = Settings()
+        if args.mode == "chat":
+            asyncio.run(run_chat(settings))
+        elif args.mode == "dashboard":
+            asyncio.run(run_dashboard(settings))
+        else:
+            asyncio.run(run(settings))
     except KeyboardInterrupt:
         logger.info("nekograph_stopped")
 

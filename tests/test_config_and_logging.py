@@ -19,6 +19,9 @@ def test_settings_defaults_are_safe_for_local_development() -> None:
     assert settings.websocket_path == "/onebot/v11/ws"
     assert settings.group_conversation_mode is GroupConversationMode.PER_USER
     assert settings.checkpoint_path == Path("data/checkpoints.sqlite")
+    assert settings.model_profiles_path == Path("data/model-profiles.sqlite")
+    assert settings.dashboard_host == "127.0.0.1"
+    assert settings.dashboard_port == 5190
     assert settings.model_backend is ModelBackend.FAKE
 
 

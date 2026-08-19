@@ -1,0 +1,168 @@
+from __future__ import annotations
+
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any, cast
+
+import httpx
+
+from nekograph.config import Settings
+from nekograph.web import create_dashboard_app
+
+
+def dashboard_settings(tmp_path: Path) -> Settings:
+    return Settings(
+        checkpoint_path=tmp_path / "checkpoints.sqlite",
+        tool_execution_ledger_path=tmp_path / "tool-executions.sqlite",
+        model_profiles_path=tmp_path / "model-profiles.sqlite",
+        tool_sandbox_path=tmp_path / "tool-sandbox",
+        dashboard_port=0,
+        access_token=None,
+    )
+
+
+@asynccontextmanager
+async def dashboard_client(tmp_path: Path) -> AsyncGenerator[httpx.AsyncClient]:
+    app = create_dashboard_app(dashboard_settings(tmp_path))
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as client,
+    ):
+        yield client
+
+
+async def test_dashboard_status_tools_config_and_chat(tmp_path: Path) -> None:
+    async with dashboard_client(tmp_path) as client:
+        dashboard = await client.get("/")
+        status = await client.get("/api/status")
+        tools = await client.get("/api/tools")
+        config = await client.get("/api/config")
+        reply = await client.post(
+            "/api/chat/browser-test/messages",
+            json={"text": "hello dashboard"},
+        )
+        history = await client.get("/api/chat/browser-test/messages")
+        reset = await client.post("/api/chat/browser-test/reset")
+
+    assert dashboard.status_code == 200
+    assert "NekoGraph Console" in dashboard.text
+    assert status.status_code == 200
+    status_data = cast(dict[str, Any], status.json())
+    assert status_data["model"]["model"] == "fake"
+    assert status_data["model_profile_count"] == 0
+    assert status_data["tool_count"] == 2
+
+    assert tools.status_code == 200
+    tool_data = cast(list[dict[str, Any]], tools.json())
+    assert {item["name"] for item in tool_data} == {
+        "get_current_time",
+        "write_demo_file",
+    }
+    assert all("handler" not in item for item in tool_data)
+
+    assert config.status_code == 200
+    config_data = cast(dict[str, Any], config.json())
+    assert config_data["onebot"]["access_token_configured"] is False
+    assert "access_token" not in config_data["onebot"]
+    assert "api_key" not in str(config_data)
+
+    assert reply.status_code == 200
+    assert reply.json()["content"] == "Fake response turn 1: hello dashboard"
+    assert history.status_code == 200
+    history_data = cast(list[dict[str, Any]], history.json())
+    assert [(item["role"], item["content"]) for item in history_data] == [
+        ("user", "hello dashboard"),
+        ("assistant", "Fake response turn 1: hello dashboard"),
+    ]
+    assert reset.status_code == 200
+    assert "reset" in reset.json()["content"].lower()
+
+
+async def test_dashboard_bulk_model_import_activation_and_delete(tmp_path: Path) -> None:
+    profiles = [
+        {
+            "name": "Primary",
+            "model": "model-a",
+            "base_url": "https://provider-a.example/v1",
+            "api_key": "secret-a",
+            "temperature": 0.1,
+            "timeout_seconds": 20,
+        },
+        {
+            "name": "Backup",
+            "model": "model-b",
+            "base_url": "https://provider-b.example/v1",
+            "api_key": "secret-b",
+            "temperature": 0.2,
+            "timeout_seconds": 30,
+        },
+    ]
+
+    async with dashboard_client(tmp_path) as client:
+        imported = await client.post("/api/models/import", json={"profiles": profiles})
+        imported_data = cast(list[dict[str, Any]], imported.json())
+        primary_id = str(
+            next(item["profile_id"] for item in imported_data if item["name"] == "Primary")
+        )
+        activated = await client.post(f"/api/models/{primary_id}/activate")
+        listed = await client.get("/api/models")
+        rejected_delete = await client.delete(f"/api/models/{primary_id}")
+        fallback = await client.post("/api/models/environment/activate")
+        deleted = await client.delete(f"/api/models/{primary_id}")
+
+    assert imported.status_code == 200
+    assert len(imported_data) == 2
+    assert all("api_key" not in item for item in imported_data)
+    assert "secret-a" not in imported.text
+    assert activated.status_code == 200
+    assert activated.json()["profile_id"] == primary_id
+    listed_data = cast(list[dict[str, Any]], listed.json())
+    assert next(item for item in listed_data if item["profile_id"] == primary_id)[
+        "active"
+    ] is True
+    assert rejected_delete.status_code == 409
+    assert fallback.status_code == 200
+    assert fallback.json()["source"] == "environment"
+    assert deleted.status_code == 204
+
+
+async def test_dashboard_rejects_invalid_or_duplicate_bulk_import(tmp_path: Path) -> None:
+    valid = {
+        "name": "Primary",
+        "model": "model-a",
+        "base_url": "https://provider.example/v1",
+        "api_key": "secret",
+    }
+
+    async with dashboard_client(tmp_path) as client:
+        first = await client.post("/api/models/import", json={"profiles": [valid]})
+        duplicate = await client.post(
+            "/api/models/import",
+            json={"profiles": [{**valid, "name": "primary"}]},
+        )
+        invalid = await client.post(
+            "/api/models/import",
+            json={"profiles": [{**valid, "base_url": "ftp://invalid"}]},
+        )
+        listed = await client.get("/api/models")
+
+    assert first.status_code == 200
+    assert duplicate.status_code == 409
+    assert invalid.status_code == 422
+    assert len(listed.json()) == 1
+
+
+async def test_dashboard_rejects_invalid_conversation_id(tmp_path: Path) -> None:
+    async with dashboard_client(tmp_path) as client:
+        response = await client.post(
+            "/api/chat/not allowed/messages",
+            json={"text": "hello"},
+        )
+        missing_api = await client.get("/api/not-found")
+
+    assert response.status_code == 422
+    assert missing_api.status_code == 404

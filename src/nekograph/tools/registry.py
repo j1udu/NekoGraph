@@ -47,6 +47,9 @@ class ToolRegistry:
             raise ToolRegistrationError(f"tool timeout must be positive: {definition.name}")
         self._definitions[definition.name] = definition
 
+    def definitions(self) -> tuple[ToolDefinition, ...]:
+        return tuple(self._definitions.values())
+
     def model_specs(self) -> tuple[ModelToolSpec, ...]:
         return tuple(
             {
