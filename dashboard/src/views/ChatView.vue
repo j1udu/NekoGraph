@@ -168,13 +168,14 @@ onMounted(() => {
 
 <template>
   <section class="page chat-page">
-    <header class="chat-toolbar">
-      <NButton type="primary" :disabled="sending" @click="newConversation"><template #icon><MessageSquarePlus :size="16" /></template>新建对话</NButton>
-    </header>
-
     <div class="chat-layout">
       <aside class="conversation-list panel">
-        <div class="conversation-list-header"><strong>对话</strong><span>{{ conversations.length }}</span></div>
+        <div class="conversation-list-header">
+          <strong>对话 <span>{{ conversations.length }}</span></strong>
+          <NButton type="primary" size="small" :disabled="sending" @click="newConversation">
+            <template #icon><MessageSquarePlus :size="15" /></template>新建
+          </NButton>
+        </div>
         <div
           v-for="conversation in conversations"
           :key="conversation.id"
@@ -229,11 +230,11 @@ onMounted(() => {
 
 <style scoped>
 .chat-page { height: 100vh; display: flex; flex-direction: column; padding-bottom: 28px; }
-.chat-toolbar { min-height: 38px; display: flex; justify-content: flex-end; margin-bottom: 16px; }
 .chat-layout { min-height: 0; flex: 1; display: grid; grid-template-columns: 238px minmax(0, 1fr); gap: 16px; }
 .conversation-list { min-height: 0; overflow-y: auto; padding: 12px; }
-.conversation-list-header { padding: 4px 5px 12px; display: flex; justify-content: space-between; color: #52605a; font-size: 13px; }
-.conversation-list-header span { color: #89948f; }
+.conversation-list-header { padding: 0 0 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #52605a; font-size: 13px; }
+.conversation-list-header strong { display: inline-flex; align-items: center; gap: 5px; }
+.conversation-list-header strong span { color: #89948f; font-weight: 500; }
 .conversation-item { width: 100%; min-height: 58px; border: 1px solid transparent; border-radius: 7px; padding: 9px 8px; display: flex; align-items: center; gap: 7px; text-align: left; background: transparent; color: #2b3430; }
 .conversation-item:hover { background: #f0f4f1; }
 .conversation-item.selected { border-color: #b8d7c7; background: #e7f3ec; }
