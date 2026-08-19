@@ -62,6 +62,12 @@ export interface ChatResponse {
   content: string
 }
 
+export interface ConversationSummary {
+  id: string
+  title: string
+  created_at: string
+}
+
 export interface LogEntry {
   timestamp: string
   level: string

@@ -10,6 +10,7 @@ from langchain_core.messages import AIMessage, AnyMessage
 
 from nekograph.agent.model import ChatModel
 from nekograph.agent.openai_compatible import (
+    ModelProviderResponseError,
     OpenAICompatibleChatModel,
     OpenAICompatibleConfig,
 )
@@ -17,6 +18,7 @@ from nekograph.agent.profiles import ModelProfileStore, StoredModelProfile
 from nekograph.model_types import ModelToolSpec
 
 CloseModel = Callable[[], Awaitable[None]]
+TestConnection = Callable[[], Awaitable[None]]
 
 
 async def _no_op_close() -> None:
@@ -27,6 +29,7 @@ async def _no_op_close() -> None:
 class ModelHandle:
     model: ChatModel
     close: CloseModel = _no_op_close
+    test_connection: TestConnection | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +54,7 @@ def openai_profile_model(profile: StoredModelProfile) -> ModelHandle:
             timeout_seconds=profile.timeout_seconds,
         )
     )
-    return ModelHandle(model=model, close=model.aclose)
+    return ModelHandle(model=model, close=model.aclose, test_connection=model.test_connection)
 
 
 class ModelController:
@@ -104,6 +107,17 @@ class ModelController:
         profile = await self._store.get(profile_id)
         await self._switch_to_profile(profile, persist=True)
         return self._active_info
+
+    async def test_profile(self, profile_id: str) -> None:
+        profile = await self._store.get(profile_id)
+        handle = self._profile_factory(profile)
+        if handle.test_connection is None:
+            await handle.close()
+            raise ModelProviderResponseError("model profile does not support connection tests")
+        try:
+            await handle.test_connection()
+        finally:
+            await handle.close()
 
     async def aclose(self) -> None:
         async with self._lock:

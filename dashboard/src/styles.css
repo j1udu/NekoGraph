@@ -86,6 +86,7 @@ button { cursor: pointer; }
 .field textarea { min-height: 190px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .form-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 20px; }
 .error-banner { margin-bottom: 15px; padding: 11px 13px; border: 1px solid #e7bbbb; border-radius: 7px; color: #8f3434; background: #fff2f2; font-size: 12px; }
+.success-banner { margin-bottom: 15px; padding: 11px 13px; border: 1px solid #b9dcc8; border-radius: 7px; color: #176447; background: #edf8f1; font-size: 12px; }
 .empty-state { min-height: 180px; display: grid; place-items: center; color: #7b8580; font-size: 13px; text-align: center; }
 .loading { color: #78827d; font-size: 13px; }
 

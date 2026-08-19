@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from nekograph import __version__
 from nekograph.agent import ModelProfileInput, ModelProfileUpdate
+from nekograph.agent.openai_compatible import ModelProviderError
 from nekograph.agent.profiles import (
     ActiveModelProfileError,
     DuplicateModelProfileError,
@@ -196,6 +197,11 @@ def create_dashboard_app(settings: Settings | None = None) -> FastAPI:
             content=_outbound_text(response.segments),
         )
 
+    @app.delete("/api/chat/{conversation_id}", status_code=204)
+    async def delete_chat(conversation_id: ConversationId, request: Request) -> None:
+        context = _context(request)
+        await context.resources.runtime.reset(context.chat.conversation(conversation_id))
+
     @app.get("/api/models", response_model=list[ModelProfileView])
     async def list_models(request: Request) -> list[ModelProfileView]:
         profiles = await _context(request).resources.model_profiles.list()
@@ -237,6 +243,16 @@ def create_dashboard_app(settings: Settings | None = None) -> FastAPI:
             "base_url": active.base_url,
             "source": active.source,
         }
+
+    @app.post("/api/models/{profile_id}/test")
+    async def test_model(profile_id: str, request: Request) -> dict[str, Any]:
+        try:
+            await _context(request).resources.models.test_profile(profile_id)
+        except ModelProfileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ModelProviderError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return {"ok": True, "message": "model connection succeeded"}
 
     @app.put("/api/models/{profile_id}", response_model=ModelProfileView)
     async def update_model(

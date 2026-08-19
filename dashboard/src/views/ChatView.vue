@@ -1,23 +1,56 @@
 <script setup lang="ts">
-import { RotateCcw, Send, Sparkles } from '@lucide/vue'
-import { nextTick, onMounted, ref } from 'vue'
+import { MessageSquarePlus, Send, Sparkles, Trash2 } from '@lucide/vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 
 import { api } from '../api'
-import type { HistoryMessage } from '../types'
+import type { ConversationSummary, HistoryMessage } from '../types'
 
-const conversationId = (() => {
-  const stored = localStorage.getItem('nekograph.web.conversation')
-  if (stored) return stored
-  const created = `browser-${crypto.randomUUID()}`
-  localStorage.setItem('nekograph.web.conversation', created)
-  return created
-})()
+const storageKey = 'nekograph.web.conversations'
+const activeKey = 'nekograph.web.active-conversation'
+
+function createConversation(): ConversationSummary {
+  const now = new Date().toISOString()
+  return { id: `browser-${crypto.randomUUID()}`, title: '新对话', created_at: now }
+}
+
+function loadConversations(): ConversationSummary[] {
+  try {
+    const stored = localStorage.getItem(storageKey)
+    const legacy = localStorage.getItem('nekograph.web.conversation')
+    const parsed = JSON.parse(stored ?? (legacy ? JSON.stringify([{
+      id: legacy,
+      title: '旧对话',
+      created_at: new Date().toISOString(),
+    }]) : '[]')) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((item): item is ConversationSummary => {
+      if (!item || typeof item !== 'object') return false
+      const value = item as Record<string, unknown>
+      return typeof value.id === 'string' && typeof value.title === 'string' && typeof value.created_at === 'string'
+    })
+  } catch {
+    return []
+  }
+}
+
+const conversations = ref<ConversationSummary[]>(loadConversations())
+if (conversations.value.length === 0) conversations.value = [createConversation()]
+const storedActive = localStorage.getItem(activeKey)
+const activeConversationId = ref(
+  conversations.value.some((item) => item.id === storedActive) ? storedActive! : conversations.value[0].id,
+)
+const activeConversation = computed(() => conversations.value.find((item) => item.id === activeConversationId.value) ?? conversations.value[0])
 
 const messages = ref<HistoryMessage[]>([])
 const input = ref('')
 const sending = ref(false)
 const error = ref('')
 const list = ref<HTMLElement | null>(null)
+
+function persistConversations() {
+  localStorage.setItem(storageKey, JSON.stringify(conversations.value))
+  localStorage.setItem(activeKey, activeConversationId.value)
+}
 
 async function scrollToBottom() {
   await nextTick()
@@ -26,7 +59,7 @@ async function scrollToBottom() {
 
 async function loadHistory() {
   try {
-    messages.value = await api.history(conversationId)
+    messages.value = await api.history(activeConversationId.value)
     await scrollToBottom()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '无法读取对话'
@@ -42,8 +75,13 @@ async function send() {
   sending.value = true
   await scrollToBottom()
   try {
-    const response = await api.send(conversationId, text)
+    const response = await api.send(activeConversationId.value, text)
     messages.value.push({ role: 'assistant', content: response.content, tool_calls: [] })
+    const conversation = activeConversation.value
+    if (conversation && conversation.title === '新对话') {
+      conversation.title = text.slice(0, 28)
+      persistConversations()
+    }
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '发送失败'
   } finally {
@@ -52,14 +90,43 @@ async function send() {
   }
 }
 
-async function reset() {
+async function selectConversation(id: string) {
+  if (sending.value || id === activeConversationId.value) return
+  activeConversationId.value = id
+  messages.value = []
+  error.value = ''
+  persistConversations()
+  await loadHistory()
+}
+
+function newConversation() {
   if (sending.value) return
+  const conversation = createConversation()
+  conversations.value.unshift(conversation)
+  activeConversationId.value = conversation.id
+  messages.value = []
+  error.value = ''
+  persistConversations()
+}
+
+async function removeConversation(conversation: ConversationSummary) {
+  if (sending.value) return
+  if (!window.confirm(`删除对话“${conversation.title}”？`)) return
   error.value = ''
   try {
-    await api.reset(conversationId)
-    messages.value = []
+    await api.deleteConversation(conversation.id)
+    const index = conversations.value.findIndex((item) => item.id === conversation.id)
+    conversations.value = conversations.value.filter((item) => item.id !== conversation.id)
+    if (conversation.id === activeConversationId.value) {
+      const replacement = conversations.value[Math.max(0, index - 1)] ?? createConversation()
+      if (conversations.value.length === 0) conversations.value = [replacement]
+      activeConversationId.value = replacement.id
+      messages.value = []
+      await loadHistory()
+    }
+    persistConversations()
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '重置失败'
+    error.value = reason instanceof Error ? reason.message : '删除失败'
   }
 }
 
@@ -70,7 +137,10 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
-onMounted(loadHistory)
+onMounted(() => {
+  persistConversations()
+  void loadHistory()
+})
 </script>
 
 <template>
@@ -78,14 +148,32 @@ onMounted(loadHistory)
     <header class="page-header">
       <div>
         <h1>本地对话</h1>
-        <p>{{ conversationId }}</p>
+        <p>{{ activeConversation?.title ?? '新对话' }}</p>
       </div>
-      <button class="button secondary" type="button" :disabled="sending" @click="reset">
-        <RotateCcw :size="16" /> 重置上下文
+      <button class="button primary" type="button" :disabled="sending" @click="newConversation">
+        <MessageSquarePlus :size="16" /> 新建对话
       </button>
     </header>
 
-    <div class="chat-surface panel">
+    <div class="chat-layout">
+      <aside class="conversation-list panel">
+        <div class="conversation-list-header"><strong>对话</strong><span>{{ conversations.length }}</span></div>
+        <div
+          v-for="conversation in conversations"
+          :key="conversation.id"
+          class="conversation-item"
+          :class="{ selected: conversation.id === activeConversationId }"
+          role="button"
+          tabindex="0"
+          @click="selectConversation(conversation.id)"
+          @keydown.enter="selectConversation(conversation.id)"
+          @keydown.space.prevent="selectConversation(conversation.id)"
+        >
+          <span class="conversation-item-copy"><strong>{{ conversation.title }}</strong><small>{{ new Date(conversation.created_at).toLocaleDateString() }}</small></span>
+          <button class="conversation-delete" type="button" title="删除对话" @click.stop="removeConversation(conversation)"><Trash2 :size="15" /></button>
+        </div>
+      </aside>
+      <div class="chat-surface panel">
       <div ref="list" class="message-list">
         <div v-if="messages.length === 0" class="chat-empty">
           <div class="chat-empty-icon"><Sparkles :size="23" /></div>
@@ -118,12 +206,26 @@ onMounted(loadHistory)
           <Send :size="18" />
         </button>
       </div>
+      </div>
     </div>
   </section>
 </template>
 
 <style scoped>
 .chat-page { height: 100vh; display: flex; flex-direction: column; padding-bottom: 28px; }
+.chat-layout { min-height: 0; flex: 1; display: grid; grid-template-columns: 238px minmax(0, 1fr); gap: 16px; }
+.conversation-list { min-height: 0; overflow-y: auto; padding: 12px; }
+.conversation-list-header { padding: 4px 5px 12px; display: flex; justify-content: space-between; color: #52605a; font-size: 13px; }
+.conversation-list-header span { color: #89948f; }
+.conversation-item { width: 100%; min-height: 58px; border: 1px solid transparent; border-radius: 7px; padding: 9px 8px; display: flex; align-items: center; gap: 7px; text-align: left; background: transparent; color: #2b3430; }
+.conversation-item:hover { background: #f0f4f1; }
+.conversation-item.selected { border-color: #b8d7c7; background: #e7f3ec; }
+.conversation-item-copy { min-width: 0; flex: 1; }
+.conversation-item-copy strong, .conversation-item-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-item-copy strong { font-size: 13px; }
+.conversation-item-copy small { margin-top: 4px; color: #81908a; font-size: 11px; }
+.conversation-delete { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; color: #9a6767; }
+.conversation-delete:hover { background: #f9e7e7; color: #a33c3c; }
 .chat-surface { min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .message-list { flex: 1; overflow-y: auto; padding: 26px max(20px, 7%); }
 .chat-empty { height: 100%; min-height: 260px; display: grid; place-content: center; justify-items: center; gap: 10px; color: #62706a; }
@@ -142,5 +244,6 @@ onMounted(loadHistory)
 .send-button { width: 42px; height: 42px; border: 0; border-radius: 7px; display: grid; place-items: center; color: #fff; background: #176c52; }
 .send-button:disabled { opacity: .5; cursor: not-allowed; }
 @media (max-width: 900px) { .chat-page { height: 100dvh; } }
-@media (max-width: 620px) { .message-list { padding: 20px 12px; } .message-bubble { max-width: 90%; } }
+@media (max-width: 760px) { .chat-layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); } .conversation-list { max-height: 150px; } .conversation-item { display: inline-flex; width: calc(50% - 5px); margin-right: 5px; } }
+@media (max-width: 620px) { .message-list { padding: 20px 12px; } .message-bubble { max-width: 90%; } .conversation-item { width: 100%; margin-right: 0; } }
 </style>

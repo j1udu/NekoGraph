@@ -58,4 +58,8 @@ export const api = {
     }),
   deleteModel: (profileId: string) =>
     request<void>(`/api/models/${profileId}`, { method: 'DELETE' }),
+  testModel: (profileId: string) =>
+    request<{ ok: boolean; message: string }>(`/api/models/${profileId}/test`, { method: 'POST' }),
+  deleteConversation: (conversationId: string) =>
+    request<void>(`/api/chat/${conversationId}`, { method: 'DELETE' }),
 }

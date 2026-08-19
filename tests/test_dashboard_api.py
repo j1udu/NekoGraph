@@ -196,6 +196,49 @@ async def test_dashboard_edits_active_model_without_exposing_api_key(
     }
 
 
+async def test_dashboard_deletes_one_conversation_checkpoint(tmp_path: Path) -> None:
+    async with dashboard_client(tmp_path) as client:
+        first = await client.post(
+            "/api/chat/conversation-a/messages", json={"text": "first"}
+        )
+        second = await client.post(
+            "/api/chat/conversation-b/messages", json={"text": "second"}
+        )
+        deleted = await client.delete("/api/chat/conversation-a")
+        first_history = await client.get("/api/chat/conversation-a/messages")
+        second_history = await client.get("/api/chat/conversation-b/messages")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert deleted.status_code == 204
+    assert first_history.json() == []
+    assert [item["content"] for item in second_history.json()] == [
+        "second",
+        "Fake response turn 1: second",
+    ]
+
+
+async def test_dashboard_model_connection_test_does_not_switch_active_model(
+    tmp_path: Path,
+) -> None:
+    profile = {
+        "name": "Unactivated",
+        "model": "model-a",
+        "base_url": "http://127.0.0.1:1/v1",
+        "api_key": "secret",
+    }
+
+    async with dashboard_client(tmp_path) as client:
+        imported = await client.post("/api/models/import", json={"profiles": [profile]})
+        profile_id = str(imported.json()[0]["profile_id"])
+        tested = await client.post(f"/api/models/{profile_id}/test")
+        status = await client.get("/api/status")
+
+    assert tested.status_code == 502
+    assert "secret" not in tested.text
+    assert status.json()["model"]["source"] == "environment"
+
+
 async def test_dashboard_rejects_invalid_conversation_id(tmp_path: Path) -> None:
     async with dashboard_client(tmp_path) as client:
         response = await client.post(

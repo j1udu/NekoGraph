@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, FileJson, Pencil, Plus, Power, Trash2, X } from '@lucide/vue'
+import { Check, FileJson, Pencil, Plus, Power, Trash2, X, Zap } from '@lucide/vue'
 import { onMounted, reactive, ref } from 'vue'
 
 import { api } from '../api'
@@ -10,6 +10,8 @@ const status = ref<RuntimeStatus | null>(null)
 const loading = ref(true)
 const saving = ref(false)
 const error = ref('')
+const notice = ref('')
+const testingProfileId = ref<string | null>(null)
 const dialog = ref<'single' | 'edit' | 'bulk' | null>(null)
 const editingProfileId = ref<string | null>(null)
 const bulkJson = ref('[\n  {\n    "name": "Primary",\n    "model": "model-id",\n    "base_url": "https://api.example.com/v1",\n    "api_key": "",\n    "temperature": 0,\n    "timeout_seconds": 30\n  }\n]')
@@ -35,6 +37,7 @@ function closeDialog() {
   dialog.value = null
   editingProfileId.value = null
   error.value = ''
+  notice.value = ''
 }
 
 function resetForm() {
@@ -108,11 +111,26 @@ async function submitBulk() {
 
 async function activate(profileId: string) {
   error.value = ''
+  notice.value = ''
   try {
     await api.activateModel(profileId)
     await load()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '切换失败'
+  }
+}
+
+async function testConnection(profile: ModelProfile) {
+  error.value = ''
+  notice.value = ''
+  testingProfileId.value = profile.profile_id
+  try {
+    await api.testModel(profile.profile_id)
+    notice.value = `“${profile.name}”连接成功`
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '连接测试失败'
+  } finally {
+    testingProfileId.value = null
   }
 }
 
@@ -158,6 +176,7 @@ onMounted(load)
     </header>
 
     <div v-if="error && !dialog" class="error-banner">{{ error }}</div>
+    <div v-if="notice && !dialog" class="success-banner">{{ notice }}</div>
 
     <div class="environment-row panel">
       <div>
@@ -185,6 +204,7 @@ onMounted(load)
               <td>
                 <div class="row-actions">
                   <button v-if="!profile.active" class="icon-button" type="button" title="激活模型" @click="activate(profile.profile_id)"><Power :size="16" /></button>
+                  <button class="icon-button" type="button" title="测试连接" :disabled="testingProfileId !== null" @click="testConnection(profile)"><Zap :size="16" /></button>
                   <button class="icon-button" type="button" title="编辑模型" @click="openEdit(profile)"><Pencil :size="16" /></button>
                   <button class="icon-button danger" type="button" title="删除模型" :disabled="profile.active" @click="remove(profile)"><Trash2 :size="16" /></button>
                 </div>

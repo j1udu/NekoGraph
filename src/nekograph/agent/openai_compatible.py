@@ -225,3 +225,21 @@ class OpenAICompatibleChatModel:
                 "finish_reason": choice.finish_reason,
             },
         )
+
+    async def test_connection(self) -> None:
+        endpoint = f"{self._config.base_url.rstrip('/')}/models"
+        try:
+            response = await self._client.get(endpoint)
+            response.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise ModelProviderTimeoutError("model provider request timed out") from exc
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in {401, 403}:
+                raise ModelProviderAuthenticationError(
+                    "model provider rejected authentication"
+                ) from exc
+            raise ModelProviderResponseError(
+                f"model provider returned HTTP {exc.response.status_code}"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise ModelProviderTransportError("model provider request failed") from exc

@@ -201,6 +201,54 @@ async def test_openai_compatible_adapter_maps_text_response() -> None:
     assert response.tool_calls == []
 
 
+async def test_openai_compatible_adapter_tests_connection() -> None:
+    captured: dict[str, str] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["method"] = request.method
+        captured["url"] = str(request.url)
+        captured["authorization"] = request.headers["Authorization"]
+        return httpx.Response(200, json={"object": "list", "data": []})
+
+    config = OpenAICompatibleConfig(
+        model="test-model",
+        base_url="https://provider.example/v1",
+        api_key="test-secret",
+    )
+    async with OpenAICompatibleChatModel(
+        config, transport=httpx.MockTransport(handler)
+    ) as model:
+        await model.test_connection()
+
+    assert captured == {
+        "method": "GET",
+        "url": "https://provider.example/v1/models",
+        "authorization": "Bearer test-secret",
+    }
+
+
+@pytest.mark.parametrize("status_code", [401, 403, 500])
+async def test_openai_compatible_connection_maps_http_errors(status_code: int) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status_code)
+
+    config = OpenAICompatibleConfig(
+        model="test-model",
+        base_url="https://provider.example/v1",
+        api_key="test-secret",
+    )
+    async with OpenAICompatibleChatModel(
+        config, transport=httpx.MockTransport(handler)
+    ) as model:
+        expected = (
+            ModelProviderAuthenticationError
+            if status_code in {401, 403}
+            else ModelProviderResponseError
+        )
+        with pytest.raises(expected):
+            await model.test_connection()
+
+
 @pytest.mark.parametrize("status_code", [401, 403])
 async def test_openai_compatible_adapter_maps_authentication_errors(status_code: int) -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
