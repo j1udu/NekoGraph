@@ -168,11 +168,7 @@ onMounted(() => {
 
 <template>
   <section class="page chat-page">
-    <header class="page-header">
-      <div>
-        <h1>本地对话</h1>
-        <p>{{ activeConversation?.title ?? '新对话' }}</p>
-      </div>
+    <header class="chat-toolbar">
       <NButton type="primary" :disabled="sending" @click="newConversation"><template #icon><MessageSquarePlus :size="16" /></template>新建对话</NButton>
     </header>
 
@@ -233,6 +229,7 @@ onMounted(() => {
 
 <style scoped>
 .chat-page { height: 100vh; display: flex; flex-direction: column; padding-bottom: 28px; }
+.chat-toolbar { min-height: 38px; display: flex; justify-content: flex-end; margin-bottom: 16px; }
 .chat-layout { min-height: 0; flex: 1; display: grid; grid-template-columns: 238px minmax(0, 1fr); gap: 16px; }
 .conversation-list { min-height: 0; overflow-y: auto; padding: 12px; }
 .conversation-list-header { padding: 4px 5px 12px; display: flex; justify-content: space-between; color: #52605a; font-size: 13px; }
