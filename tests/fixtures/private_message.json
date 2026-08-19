@@ -1,0 +1,21 @@
+{
+  "time": 1723968000,
+  "self_id": 10000,
+  "post_type": "message",
+  "message_type": "private",
+  "sub_type": "friend",
+  "message_id": 101,
+  "user_id": 20001,
+  "message": [
+    {"type": "text", "data": {"text": "hello neko"}}
+  ],
+  "raw_message": "hello neko",
+  "font": 0,
+  "sender": {
+    "user_id": 20001,
+    "nickname": "Alice",
+    "sex": "unknown",
+    "age": 0
+  },
+  "napcat_extra_not_in_core_model": "ignored"
+}
