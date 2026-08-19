@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     dashboard_port: int = Field(default=5190, ge=0, le=65535)
     tool_sandbox_path: Path = Path("data/tool-sandbox")
     tool_execution_ledger_path: Path = Path("data/tool-executions.sqlite")
+    scheduled_tasks_path: Path = Path("data/scheduled-tasks.sqlite")
+    scheduled_task_max_concurrency: int = Field(default=8, ge=1, le=100)
     tool_permissions: tuple[str, ...] = ("demo_file:write",)
     allow_dangerous_tools: bool = False
     tool_approval_ttl_seconds: float = Field(default=900.0, gt=0)

@@ -75,12 +75,52 @@ async def run_dashboard(settings: Settings) -> None:
     await server.serve()
 
 
+async def run_serve(settings: Settings) -> None:
+    """Run the OneBot gateway and Dashboard in one process.
+
+    The shared resource context owns the only SchedulerRuntime instance, which
+    prevents a persistent task from being executed twice by two processes.
+    """
+    async with open_runtime_resources(settings) as resources:
+        application = resources.application()
+        gateway = ReverseWebSocketGateway(
+            application=application,
+            host=settings.host,
+            port=settings.port,
+            path=settings.websocket_path,
+            access_token=settings.access_token,
+            action_timeout_seconds=settings.action_timeout_seconds,
+        )
+        dashboard = uvicorn.Server(
+            uvicorn.Config(
+                create_dashboard_app(settings, shared_resources=resources),
+                host=settings.dashboard_host,
+                port=settings.dashboard_port,
+                log_config=None,
+            )
+        )
+        async with gateway.run() as socket_server:
+            gateway_task = asyncio.create_task(socket_server.serve_forever())
+            dashboard_task = asyncio.create_task(dashboard.serve())
+            tasks = {gateway_task, dashboard_task}
+            done, pending = await asyncio.wait(
+                tasks, return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+            for task in done:
+                exception = task.exception()
+                if exception is not None:
+                    raise exception
+
+
 def parse_args(argv: Sequence[str] | None = None) -> Namespace:
     parser = ArgumentParser(prog="nekograph")
     parser.add_argument(
         "mode",
         nargs="?",
-        choices=("gateway", "chat", "dashboard"),
+        choices=("gateway", "chat", "dashboard", "serve"),
         default="gateway",
         help="run the OneBot gateway (default), local chat, or management dashboard",
     )
@@ -96,6 +136,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             asyncio.run(run_chat(settings))
         elif args.mode == "dashboard":
             asyncio.run(run_dashboard(settings))
+        elif args.mode == "serve":
+            asyncio.run(run_serve(settings))
         else:
             asyncio.run(run(settings))
     except KeyboardInterrupt:

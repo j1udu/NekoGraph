@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { dateZhCN, NConfigProvider, NLayout, NLayoutContent, NMessageProvider, zhCN } from 'naive-ui'
+import { dateZhCN, NConfigProvider, NDialogProvider, NLayout, NLayoutContent, NMessageProvider, zhCN } from 'naive-ui'
 import { onMounted } from 'vue'
 
 import AppSidebar from './components/layout/AppSidebar.vue'
@@ -17,14 +17,16 @@ onMounted(() => { void runtime.refresh().catch(() => undefined) })
 <template>
   <NConfigProvider :locale="zhCN" :date-locale="dateZhCN" :theme-overrides="themeOverrides">
     <NMessageProvider>
-      <NLayout has-sider class="app-shell">
-        <AppSidebar />
-        <NLayout class="main-layout">
-          <AppTopbar @toggle-menu="ui.toggleSidebar" />
-          <NLayoutContent class="main-content"><RouterView /></NLayoutContent>
+      <NDialogProvider>
+        <NLayout has-sider class="app-shell">
+          <AppSidebar />
+          <NLayout class="main-layout">
+            <AppTopbar @toggle-menu="ui.toggleSidebar" />
+            <NLayoutContent class="main-content"><RouterView /></NLayoutContent>
+          </NLayout>
         </NLayout>
-      </NLayout>
-      <GlobalFeedback />
+        <GlobalFeedback />
+      </NDialogProvider>
     </NMessageProvider>
   </NConfigProvider>
 </template>

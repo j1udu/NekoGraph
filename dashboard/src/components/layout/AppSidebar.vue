@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Boxes, LayoutDashboard, MessageSquareText, Network, ScrollText, Settings, Wrench, X } from '@lucide/vue'
+import { AlarmClock, Boxes, LayoutDashboard, MessageSquareText, Network, ScrollText, Settings, Wrench, X } from '@lucide/vue'
 import { NLayoutSider, NMenu } from 'naive-ui'
 import type { MenuOption } from 'naive-ui'
 import { computed, h } from 'vue'
@@ -17,6 +17,7 @@ const navigation: Array<{ key: string; label: string; icon: typeof Network }> = 
   { key: '/chat', label: '对话', icon: MessageSquareText },
   { key: '/models', label: '模型', icon: Boxes },
   { key: '/tools', label: '工具', icon: Wrench },
+  { key: '/scheduled-tasks', label: '定时任务', icon: AlarmClock },
   { key: '/logs', label: '日志', icon: ScrollText },
   { key: '/settings', label: '设置', icon: Settings },
 ]

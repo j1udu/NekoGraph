@@ -9,6 +9,9 @@ import type {
   ModelProfileUpdate,
   RuntimeStatus,
   ToolInfo,
+  ScheduledTask,
+  ScheduledTaskRequest,
+  TaskRun,
 } from './types'
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -62,4 +65,15 @@ export const api = {
     request<{ ok: boolean; message: string }>(`/api/models/${profileId}/test`, { method: 'POST' }),
   deleteConversation: (conversationId: string) =>
     request<void>(`/api/chat/${conversationId}`, { method: 'DELETE' }),
+  scheduledTaskHandlers: () => request<string[]>('/api/scheduled-task-handlers'),
+  scheduledTasks: () => request<ScheduledTask[]>('/api/scheduled-tasks'),
+  createScheduledTask: (task: ScheduledTaskRequest) => request<ScheduledTask>('/api/scheduled-tasks', {
+    method: 'POST', body: JSON.stringify(task),
+  }),
+  updateScheduledTask: (taskId: string, task: ScheduledTaskRequest) => request<ScheduledTask>(`/api/scheduled-tasks/${taskId}`, {
+    method: 'PUT', body: JSON.stringify(task),
+  }),
+  deleteScheduledTask: (taskId: string) => request<void>(`/api/scheduled-tasks/${taskId}`, { method: 'DELETE' }),
+  runScheduledTask: (taskId: string) => request<{ status: string }>(`/api/scheduled-tasks/${taskId}/run`, { method: 'POST' }),
+  scheduledTaskRuns: (taskId: string) => request<TaskRun[]>(`/api/scheduled-tasks/${taskId}/runs`),
 }

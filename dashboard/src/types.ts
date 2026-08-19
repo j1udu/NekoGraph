@@ -100,3 +100,48 @@ export interface DashboardConfig {
     approval_ttl_seconds: number
   }
 }
+
+export type ScheduleKind = 'cron' | 'interval' | 'once'
+export type TaskStatus = 'scheduled' | 'running' | 'completed' | 'failed' | 'disabled' | 'unavailable'
+
+export interface ScheduledTask {
+  task_id: string
+  name: string
+  handler_name: string
+  schedule_kind: ScheduleKind
+  cron_expression: string | null
+  interval_seconds: number | null
+  run_at: string | null
+  timezone: string
+  payload: Record<string, unknown>
+  enabled: boolean
+  status: TaskStatus
+  last_run_at: string | null
+  next_run_at: string | null
+  last_error: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ScheduledTaskRequest {
+  name: string
+  handler_name: string
+  schedule_kind: ScheduleKind
+  cron_expression?: string | null
+  interval_seconds?: number | null
+  run_at?: string | null
+  timezone: string
+  payload: Record<string, unknown>
+  enabled: boolean
+}
+
+export interface TaskRun {
+  run_id: string
+  task_id: string
+  scheduled_at: string
+  started_at: string
+  finished_at: string | null
+  status: TaskStatus
+  error: string | null
+  duration_ms: number | null
+}

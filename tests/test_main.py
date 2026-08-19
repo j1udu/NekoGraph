@@ -15,6 +15,7 @@ def test_cli_defaults_to_gateway_and_supports_local_chat() -> None:
     assert parse_args(["gateway"]).mode == "gateway"
     assert parse_args(["chat"]).mode == "chat"
     assert parse_args(["dashboard"]).mode == "dashboard"
+    assert parse_args(["serve"]).mode == "serve"
 
 
 async def test_model_lifecycle_selects_fake_backend(

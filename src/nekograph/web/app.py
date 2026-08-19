@@ -34,6 +34,7 @@ from nekograph.bootstrap import RuntimeResources, open_runtime_resources
 from nekograph.config import Settings
 from nekograph.models import MessageSegment
 from nekograph.protocols.web_chat import WebChatAdapter
+from nekograph.scheduling import ScheduledTaskInput, SchedulingError
 from nekograph.web.logs import DashboardLogHandler
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,10 @@ class HistoryMessage(BaseModel):
 
 class ModelImportRequest(BaseModel):
     profiles: list[ModelProfileInput] = Field(min_length=1, max_length=50)
+
+
+class ScheduledTaskRequest(ScheduledTaskInput):
+    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,7 +108,11 @@ def _history_message(
     return HistoryMessage(role=message.type, content=_message_content(message))
 
 
-def create_dashboard_app(settings: Settings | None = None) -> FastAPI:
+def create_dashboard_app(
+    settings: Settings | None = None,
+    *,
+    shared_resources: RuntimeResources | None = None,
+) -> FastAPI:
     configured = settings or Settings()
     logs = DashboardLogHandler()
 
@@ -112,17 +121,29 @@ def create_dashboard_app(settings: Settings | None = None) -> FastAPI:
         root = logging.getLogger()
         root.addHandler(logs)
         try:
-            async with open_runtime_resources(configured) as resources:
+            if shared_resources is not None:
                 app.state.context = DashboardContext(
-                    resources=resources,
+                    resources=shared_resources,
                     chat=WebChatAdapter(
-                        resources.application(conversation_namespace="web:v1")
+                        shared_resources.application(conversation_namespace="web:v1")
                     ),
                     logs=logs,
                     started_at=datetime.now(UTC),
                 )
-                logger.info("dashboard_runtime_started")
+                logger.info("dashboard_runtime_shared")
                 yield
+            else:
+                async with open_runtime_resources(configured) as resources:
+                    app.state.context = DashboardContext(
+                        resources=resources,
+                        chat=WebChatAdapter(
+                            resources.application(conversation_namespace="web:v1")
+                        ),
+                        logs=logs,
+                        started_at=datetime.now(UTC),
+                    )
+                    logger.info("dashboard_runtime_started")
+                    yield
         finally:
             root.removeHandler(logs)
 
@@ -163,7 +184,69 @@ def create_dashboard_app(settings: Settings | None = None) -> FastAPI:
             "tool_count": len(context.resources.tools.definitions()),
             "checkpoint": "sqlite",
             "gateway": "dashboard_only",
+            "scheduled_task_count": len(await context.resources.scheduler.list()),
         }
+
+    @app.get("/api/scheduled-task-handlers")
+    async def scheduled_task_handlers(request: Request) -> list[str]:
+        return list(_context(request).resources.scheduler.handler_names())
+
+    @app.get("/api/scheduled-tasks")
+    async def list_scheduled_tasks(request: Request) -> list[dict[str, Any]]:
+        tasks = await _context(request).resources.scheduler.list()
+        items: list[dict[str, Any]] = []
+        for task in tasks:
+            item = task.model_dump(mode="json")
+            live_next = _context(request).resources.scheduler.next_run_at(task.task_id)
+            item["next_run_at"] = live_next.isoformat() if live_next else None
+            items.append(item)
+        return items
+
+    @app.post("/api/scheduled-tasks", status_code=201)
+    async def create_scheduled_task(
+        body: ScheduledTaskRequest, request: Request
+    ) -> dict[str, Any]:
+        try:
+            task = await _context(request).resources.scheduler.create(body)
+        except SchedulingError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return task.model_dump(mode="json")
+
+    @app.put("/api/scheduled-tasks/{task_id}")
+    async def update_scheduled_task(
+        task_id: str, body: ScheduledTaskRequest, request: Request
+    ) -> dict[str, Any]:
+        try:
+            task = await _context(request).resources.scheduler.update(task_id, body)
+        except SchedulingError as exc:
+            status = 404 if "not found" in str(exc) else 400
+            raise HTTPException(status_code=status, detail=str(exc)) from exc
+        return task.model_dump(mode="json")
+
+    @app.delete("/api/scheduled-tasks/{task_id}", status_code=204)
+    async def delete_scheduled_task(task_id: str, request: Request) -> None:
+        try:
+            await _context(request).resources.scheduler.delete(task_id)
+        except SchedulingError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/api/scheduled-tasks/{task_id}/run")
+    async def run_scheduled_task(task_id: str, request: Request) -> dict[str, str]:
+        try:
+            await _context(request).resources.scheduler.run_now(task_id)
+        except SchedulingError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {"status": "completed"}
+
+    @app.get("/api/scheduled-tasks/{task_id}/runs")
+    async def list_scheduled_task_runs(
+        task_id: str, request: Request, limit: Annotated[int, Query(ge=1, le=100)] = 50
+    ) -> list[dict[str, Any]]:
+        try:
+            runs = await _context(request).resources.scheduler.runs(task_id, limit)
+        except SchedulingError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return [run.model_dump(mode="json") for run in runs]
 
     @app.post("/api/chat/{conversation_id}/messages", response_model=ChatResponse)
     async def send_chat_message(

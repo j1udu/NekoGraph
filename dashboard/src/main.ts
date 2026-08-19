@@ -9,6 +9,7 @@ import ModelsView from './views/ModelsView.vue'
 import OverviewView from './views/OverviewView.vue'
 import SettingsView from './views/SettingsView.vue'
 import ToolsView from './views/ToolsView.vue'
+import ScheduledTasksView from './views/ScheduledTasksView.vue'
 import './styles.css'
 import './styles/tokens.css'
 import './styles/layout.css'
@@ -22,6 +23,7 @@ const router = createRouter({
     { path: '/chat', name: 'chat', component: ChatView },
     { path: '/models', name: 'models', component: ModelsView },
     { path: '/tools', name: 'tools', component: ToolsView },
+    { path: '/scheduled-tasks', name: 'scheduled-tasks', component: ScheduledTasksView },
     { path: '/logs', name: 'logs', component: LogsView },
     { path: '/settings', name: 'settings', component: SettingsView },
   ],

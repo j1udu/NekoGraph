@@ -16,6 +16,7 @@ def dashboard_settings(tmp_path: Path) -> Settings:
         checkpoint_path=tmp_path / "checkpoints.sqlite",
         tool_execution_ledger_path=tmp_path / "tool-executions.sqlite",
         model_profiles_path=tmp_path / "model-profiles.sqlite",
+        scheduled_tasks_path=tmp_path / "scheduled-tasks.sqlite",
         tool_sandbox_path=tmp_path / "tool-sandbox",
         dashboard_port=0,
         access_token=None,
@@ -82,6 +83,38 @@ async def test_dashboard_status_tools_config_and_chat(tmp_path: Path) -> None:
     assert history_data[1]["response_time_ms"] == reply.json()["response_time_ms"]
     assert reset.status_code == 200
     assert "reset" in reset.json()["content"].lower()
+
+
+async def test_dashboard_scheduled_task_lifecycle(tmp_path: Path) -> None:
+    async with dashboard_client(tmp_path) as client:
+        handlers = await client.get("/api/scheduled-task-handlers")
+        created = await client.post(
+            "/api/scheduled-tasks",
+            json={
+                "name": "诊断任务",
+                "handler_name": "core.diagnostic",
+                "schedule_kind": "interval",
+                "interval_seconds": 3600,
+                "timezone": "Asia/Shanghai",
+                "payload": {"source": "test"},
+                "enabled": True,
+            },
+        )
+        task_id = created.json()["task_id"]
+        listed = await client.get("/api/scheduled-tasks")
+        run = await client.post(f"/api/scheduled-tasks/{task_id}/run")
+        history = await client.get(f"/api/scheduled-tasks/{task_id}/runs")
+        deleted = await client.delete(f"/api/scheduled-tasks/{task_id}")
+
+    assert handlers.status_code == 200
+    assert "core.diagnostic" in handlers.json()
+    assert created.status_code == 201
+    assert listed.status_code == 200
+    assert listed.json()[0]["handler_name"] == "core.diagnostic"
+    assert run.status_code == 200
+    assert history.status_code == 200
+    assert history.json()[0]["status"] == "completed"
+    assert deleted.status_code == 204
 
 
 async def test_dashboard_bulk_model_import_activation_and_delete(tmp_path: Path) -> None:

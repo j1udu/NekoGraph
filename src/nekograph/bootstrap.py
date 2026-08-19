@@ -26,6 +26,7 @@ from nekograph.application.service import MessageApplication
 from nekograph.application.wakeup import WakeupPolicy
 from nekograph.config import ModelBackend, Settings
 from nekograph.plugins import Plugin, PluginManager
+from nekograph.scheduling import SchedulerRuntime, TaskHandlerContext, TaskHandlerRegistry
 from nekograph.tools import ToolExecutionContext, ToolRegistry, build_core_tool_registry
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,7 @@ class RuntimeResources:
     commands: CommandRegistry
     plugins: PluginManager
     conversation_metadata: ConversationMetadataStore
+    scheduler: SchedulerRuntime
 
     def application(self, *, conversation_namespace: str = "qq:v1") -> MessageApplication:
         return MessageApplication(
@@ -105,12 +107,26 @@ async def open_runtime_resources(
         permissions=frozenset(settings.tool_permissions),
         allow_dangerous=settings.allow_dangerous_tools,
     )
+    task_handlers = TaskHandlerRegistry()
+
+    async def diagnostic_handler(context: TaskHandlerContext) -> None:
+        logger.info(
+            "scheduled_task_diagnostic",
+            extra={"task_id": context.task.task_id, "run_id": context.run_id},
+        )
+
+    task_handlers.register("core.diagnostic", diagnostic_handler)
     async with (
         open_configured_model(settings) as fallback,
         ModelProfileStore.open(settings.model_profiles_path) as model_profiles,
         ConversationMetadataStore.open(
             settings.conversation_metadata_path
         ) as conversation_metadata,
+        SchedulerRuntime.open(
+            settings.scheduled_tasks_path,
+            task_handlers,
+            max_concurrency=settings.scheduled_task_max_concurrency,
+        ) as scheduler,
     ):
         fallback_model, fallback_info = fallback
         models = ModelController(
@@ -138,6 +154,7 @@ async def open_runtime_resources(
                     commands=commands,
                     plugins=plugin_manager,
                     conversation_metadata=conversation_metadata,
+                    scheduler=scheduler,
                 )
         finally:
             await plugin_manager.shutdown()

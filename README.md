@@ -11,6 +11,7 @@ A LangGraph-native QQ Agent Framework powered by NapCat and OneBot v11.
 - 命令路由、Tool Registry、风险审批与 Interrupt/Resume
 - 本地终端聊天和 Vue 3 + FastAPI 管理界面
 - OpenAI-compatible 多模型配置、导入与热切换
+- SQLite 持久化定时任务（Cron、间隔、单次）、执行历史与 Dashboard 管理
 
 ## 本地部署
 
@@ -26,6 +27,12 @@ uv run nekograph dashboard
 管理界面默认地址：<http://127.0.0.1:5190>
 
 可在管理界面的“模型”页面添加 OpenAI-compatible 模型；未配置时使用 Fake Model。
+
+需要同时运行 OneBot Gateway、Dashboard 和定时任务时：
+
+```bash
+uv run nekograph serve
+```
 
 其他启动方式：
 
