@@ -6,7 +6,11 @@ import asyncio
 import logging
 from uuid import uuid4
 
-from nekograph.application.commands import CommandRouter
+from nekograph.application.commands import (
+    CommandRegistry,
+    CommandRouter,
+    build_core_command_registry,
+)
 from nekograph.application.conversation import ConversationResolver
 from nekograph.application.ports import AgentRuntime
 from nekograph.application.scheduler import ConversationScheduler
@@ -25,12 +29,16 @@ class MessageApplication:
         conversations: ConversationResolver,
         wakeup: WakeupPolicy,
         scheduler: ConversationScheduler | None = None,
+        commands: CommandRegistry | None = None,
     ) -> None:
         self._runtime = runtime
         self._conversations = conversations
         self._wakeup = wakeup
         self._scheduler = scheduler or ConversationScheduler()
-        self._commands = CommandRouter(runtime)
+        self._commands = CommandRouter(
+            runtime,
+            commands or build_core_command_registry(runtime),
+        )
 
     async def handle(self, event: InboundMessageEvent) -> OutboundMessage | None:
         decision = self._wakeup.evaluate(event)
