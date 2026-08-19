@@ -30,13 +30,12 @@ class ActiveModelProfileError(ModelProfileError):
     """An operation cannot remove the currently active profile."""
 
 
-class ModelProfileInput(BaseModel):
+class ModelProfileConfig(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     name: str = Field(min_length=1, max_length=80)
     model: str = Field(min_length=1, max_length=200)
     base_url: str = Field(min_length=1, max_length=500)
-    api_key: SecretStr = Field(min_length=1)
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     timeout_seconds: float = Field(default=30.0, gt=0, le=600.0)
 
@@ -50,6 +49,14 @@ class ModelProfileInput(BaseModel):
         if parsed.scheme not in {"http", "https"} or not parsed.host:
             raise ValueError("base_url must be an HTTP(S) URL")
         return value
+
+
+class ModelProfileInput(ModelProfileConfig):
+    api_key: SecretStr = Field(min_length=1)
+
+
+class ModelProfileUpdate(ModelProfileConfig):
+    api_key: SecretStr | None = Field(default=None, min_length=1)
 
 
 class StoredModelProfile(BaseModel):
@@ -228,6 +235,43 @@ class ModelProfileStore:
             (profile_id,),
         )
         await self._connection.commit()
+
+    async def update(
+        self, profile_id: str, changes: ModelProfileUpdate
+    ) -> StoredModelProfile:
+        existing = await self.get(profile_id)
+        api_key = (
+            changes.api_key.get_secret_value()
+            if changes.api_key is not None
+            else existing.api_key.get_secret_value()
+        )
+        try:
+            cursor = await self._connection.execute(
+                """
+                UPDATE model_profiles
+                SET name = ?, model = ?, base_url = ?, api_key = ?,
+                    temperature = ?, timeout_seconds = ?
+                WHERE profile_id = ?
+                """,
+                (
+                    changes.name,
+                    changes.model,
+                    changes.base_url,
+                    api_key,
+                    changes.temperature,
+                    changes.timeout_seconds,
+                    profile_id,
+                ),
+            )
+            await self._connection.commit()
+        except aiosqlite.IntegrityError as exc:
+            await self._connection.rollback()
+            raise DuplicateModelProfileError(
+                "model profile names must be unique"
+            ) from exc
+        if cursor.rowcount == 0:
+            raise ModelProfileNotFoundError("model profile was not found")
+        return await self.get(profile_id)
 
     async def delete(self, profile_id: str) -> None:
         profile = await self.get(profile_id)

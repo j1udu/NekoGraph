@@ -9,6 +9,7 @@ from nekograph.agent.openai_compatible import (
 from nekograph.agent.profiles import (
     ModelProfileInput,
     ModelProfileStore,
+    ModelProfileUpdate,
     ModelProfileView,
 )
 from nekograph.agent.runtime import LangGraphRuntime
@@ -22,6 +23,7 @@ __all__ = [
     "ModelHandle",
     "ModelProfileInput",
     "ModelProfileStore",
+    "ModelProfileUpdate",
     "ModelProfileView",
     "OpenAICompatibleChatModel",
     "OpenAICompatibleConfig",

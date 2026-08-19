@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, FileJson, Plus, Power, Trash2, X } from '@lucide/vue'
+import { Check, FileJson, Pencil, Plus, Power, Trash2, X } from '@lucide/vue'
 import { onMounted, reactive, ref } from 'vue'
 
 import { api } from '../api'
@@ -10,7 +10,8 @@ const status = ref<RuntimeStatus | null>(null)
 const loading = ref(true)
 const saving = ref(false)
 const error = ref('')
-const dialog = ref<'single' | 'bulk' | null>(null)
+const dialog = ref<'single' | 'edit' | 'bulk' | null>(null)
+const editingProfileId = ref<string | null>(null)
 const bulkJson = ref('[\n  {\n    "name": "Primary",\n    "model": "model-id",\n    "base_url": "https://api.example.com/v1",\n    "api_key": "",\n    "temperature": 0,\n    "timeout_seconds": 30\n  }\n]')
 const form = reactive<ModelProfileInput>({
   name: '', model: '', base_url: '', api_key: '', temperature: 0, timeout_seconds: 30,
@@ -32,7 +33,30 @@ async function load() {
 
 function closeDialog() {
   dialog.value = null
+  editingProfileId.value = null
   error.value = ''
+}
+
+function resetForm() {
+  Object.assign(form, { name: '', model: '', base_url: '', api_key: '', temperature: 0, timeout_seconds: 30 })
+}
+
+function openCreate() {
+  resetForm()
+  dialog.value = 'single'
+}
+
+function openEdit(profile: ModelProfile) {
+  Object.assign(form, {
+    name: profile.name,
+    model: profile.model,
+    base_url: profile.base_url,
+    api_key: '',
+    temperature: profile.temperature,
+    timeout_seconds: profile.timeout_seconds,
+  })
+  editingProfileId.value = profile.profile_id
+  dialog.value = 'edit'
 }
 
 async function submitProfiles(items: ModelProfileInput[]) {
@@ -50,8 +74,26 @@ async function submitProfiles(items: ModelProfileInput[]) {
 }
 
 async function submitSingle() {
+  if (dialog.value === 'edit' && editingProfileId.value) {
+    saving.value = true
+    error.value = ''
+    try {
+      const { api_key, ...values } = form
+      await api.updateModel(editingProfileId.value, {
+        ...values,
+        ...(api_key ? { api_key } : {}),
+      })
+      closeDialog()
+      await load()
+    } catch (reason) {
+      error.value = reason instanceof Error ? reason.message : '保存失败'
+    } finally {
+      saving.value = false
+    }
+    return
+  }
   await submitProfiles([{ ...form }])
-  Object.assign(form, { name: '', model: '', base_url: '', api_key: '', temperature: 0, timeout_seconds: 30 })
+  resetForm()
 }
 
 async function submitBulk() {
@@ -109,7 +151,7 @@ onMounted(load)
         <button class="button secondary" type="button" @click="dialog = 'bulk'">
           <FileJson :size="16" /> 批量导入
         </button>
-        <button class="button primary" type="button" @click="dialog = 'single'">
+        <button class="button primary" type="button" @click="openCreate">
           <Plus :size="16" /> 添加模型
         </button>
       </div>
@@ -143,6 +185,7 @@ onMounted(load)
               <td>
                 <div class="row-actions">
                   <button v-if="!profile.active" class="icon-button" type="button" title="激活模型" @click="activate(profile.profile_id)"><Power :size="16" /></button>
+                  <button class="icon-button" type="button" title="编辑模型" @click="openEdit(profile)"><Pencil :size="16" /></button>
                   <button class="icon-button danger" type="button" title="删除模型" :disabled="profile.active" @click="remove(profile)"><Trash2 :size="16" /></button>
                 </div>
               </td>
@@ -155,17 +198,17 @@ onMounted(load)
     <div v-if="dialog" class="modal-backdrop" @click.self="closeDialog">
       <div class="modal" role="dialog" aria-modal="true">
         <div class="modal-header">
-          <h2>{{ dialog === 'single' ? '添加模型' : '批量导入模型' }}</h2>
+          <h2>{{ dialog === 'single' ? '添加模型' : dialog === 'edit' ? '编辑模型' : '批量导入模型' }}</h2>
           <button class="icon-button" type="button" title="关闭" @click="closeDialog"><X :size="18" /></button>
         </div>
         <div class="modal-body">
           <div v-if="error" class="error-banner">{{ error }}</div>
-          <form v-if="dialog === 'single'" @submit.prevent="submitSingle">
+          <form v-if="dialog === 'single' || dialog === 'edit'" @submit.prevent="submitSingle">
             <div class="form-grid">
               <div class="field"><label for="model-name">显示名称</label><input id="model-name" v-model="form.name" required /></div>
               <div class="field"><label for="model-id">模型 ID</label><input id="model-id" v-model="form.model" required /></div>
               <div class="field full"><label for="base-url">Base URL</label><input id="base-url" v-model="form.base_url" type="url" required /></div>
-              <div class="field full"><label for="api-key">API Key</label><input id="api-key" v-model="form.api_key" type="password" autocomplete="off" required /></div>
+              <div class="field full"><label for="api-key">API Key{{ dialog === 'edit' ? '（留空则保留）' : '' }}</label><input id="api-key" v-model="form.api_key" type="password" autocomplete="off" :required="dialog === 'single'" /></div>
               <div class="field"><label for="temperature">Temperature</label><input id="temperature" v-model.number="form.temperature" type="number" min="0" max="2" step="0.1" required /></div>
               <div class="field"><label for="timeout">Timeout (s)</label><input id="timeout" v-model.number="form.timeout_seconds" type="number" min="1" max="600" required /></div>
             </div>

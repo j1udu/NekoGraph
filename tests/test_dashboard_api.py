@@ -156,6 +156,46 @@ async def test_dashboard_rejects_invalid_or_duplicate_bulk_import(tmp_path: Path
     assert len(listed.json()) == 1
 
 
+async def test_dashboard_edits_active_model_without_exposing_api_key(
+    tmp_path: Path,
+) -> None:
+    original = {
+        "name": "Primary",
+        "model": "model-a",
+        "base_url": "https://provider.example/v1",
+        "api_key": "secret",
+        "temperature": 0.1,
+        "timeout_seconds": 20,
+    }
+    changes = {
+        "name": "Primary edited",
+        "model": "model-b",
+        "base_url": "https://updated.example/v1",
+        "temperature": 0.6,
+        "timeout_seconds": 45,
+    }
+
+    async with dashboard_client(tmp_path) as client:
+        imported = await client.post("/api/models/import", json={"profiles": [original]})
+        profile_id = str(imported.json()[0]["profile_id"])
+        await client.post(f"/api/models/{profile_id}/activate")
+        updated = await client.put(f"/api/models/{profile_id}", json=changes)
+        status = await client.get("/api/status")
+
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "Primary edited"
+    assert updated.json()["active"] is True
+    assert "api_key" not in updated.json()
+    assert "secret" not in updated.text
+    assert status.json()["model"] == {
+        "profile_id": profile_id,
+        "name": "Primary edited",
+        "model": "model-b",
+        "base_url": "https://updated.example/v1",
+        "source": "profile",
+    }
+
+
 async def test_dashboard_rejects_invalid_conversation_id(tmp_path: Path) -> None:
     async with dashboard_client(tmp_path) as client:
         response = await client.post(

@@ -38,6 +38,10 @@ export interface ModelProfileInput {
   timeout_seconds: number
 }
 
+export interface ModelProfileUpdate extends Omit<ModelProfileInput, 'api_key'> {
+  api_key?: string
+}
+
 export interface ToolInfo {
   name: string
   description: string

@@ -6,6 +6,7 @@ import type {
   LogEntry,
   ModelProfile,
   ModelProfileInput,
+  ModelProfileUpdate,
   RuntimeStatus,
   ToolInfo,
 } from './types'
@@ -50,6 +51,11 @@ export const api = {
     request<ActiveModel>(`/api/models/${profileId}/activate`, { method: 'POST' }),
   activateEnvironment: () =>
     request<ActiveModel>('/api/models/environment/activate', { method: 'POST' }),
+  updateModel: (profileId: string, profile: ModelProfileUpdate) =>
+    request<ModelProfile>(`/api/models/${profileId}`, {
+      method: 'PUT',
+      body: JSON.stringify(profile),
+    }),
   deleteModel: (profileId: string) =>
     request<void>(`/api/models/${profileId}`, { method: 'DELETE' }),
 }

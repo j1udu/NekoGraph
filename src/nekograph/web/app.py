@@ -21,7 +21,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMe
 from pydantic import BaseModel, ConfigDict, Field
 
 from nekograph import __version__
-from nekograph.agent import ModelProfileInput
+from nekograph.agent import ModelProfileInput, ModelProfileUpdate
 from nekograph.agent.profiles import (
     ActiveModelProfileError,
     DuplicateModelProfileError,
@@ -131,7 +131,7 @@ def create_dashboard_app(settings: Settings | None = None) -> FastAPI:
         CORSMiddleware,
         allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
         allow_credentials=False,
-        allow_methods=["GET", "POST", "DELETE"],
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
         allow_headers=["Content-Type"],
     )
 
@@ -237,6 +237,21 @@ def create_dashboard_app(settings: Settings | None = None) -> FastAPI:
             "base_url": active.base_url,
             "source": active.source,
         }
+
+    @app.put("/api/models/{profile_id}", response_model=ModelProfileView)
+    async def update_model(
+        profile_id: str, body: ModelProfileUpdate, request: Request
+    ) -> ModelProfileView:
+        context = _context(request)
+        try:
+            profile = await context.resources.model_profiles.update(profile_id, body)
+            if profile.active:
+                await context.resources.models.activate(profile_id)
+        except ModelProfileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except DuplicateModelProfileError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return profile_view(profile)
 
     @app.delete("/api/models/{profile_id}", status_code=204)
     async def delete_model(profile_id: str, request: Request) -> None:

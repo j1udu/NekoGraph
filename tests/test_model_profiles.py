@@ -18,6 +18,7 @@ from nekograph.agent.profiles import (
     DuplicateModelProfileError,
     ModelProfileInput,
     ModelProfileStore,
+    ModelProfileUpdate,
     StoredModelProfile,
     profile_view,
 )
@@ -99,6 +100,46 @@ async def test_active_profile_must_be_switched_before_delete(tmp_path: Path) -> 
         await store.set_active(None)
         await store.delete(created.profile_id)
         assert await store.list() == ()
+
+
+async def test_profile_store_updates_profile_and_preserves_api_key(tmp_path: Path) -> None:
+    async with ModelProfileStore.open(tmp_path / "models.sqlite") as store:
+        (created,) = await store.create_many([profile("Primary")])
+        updated = await store.update(
+            created.profile_id,
+            ModelProfileUpdate(
+                name="Renamed",
+                model="updated-model",
+                base_url="https://updated.example/v1",
+                temperature=0.7,
+                timeout_seconds=45,
+            ),
+        )
+
+    assert updated.name == "Renamed"
+    assert updated.model == "updated-model"
+    assert updated.api_key.get_secret_value() == "secret-Primary"
+    assert updated.temperature == 0.7
+    assert updated.timeout_seconds == 45
+
+
+async def test_profile_store_rejects_duplicate_name_on_update(tmp_path: Path) -> None:
+    async with ModelProfileStore.open(tmp_path / "models.sqlite") as store:
+        primary, backup = await store.create_many(
+            [profile("Primary"), profile("Backup")]
+        )
+
+        with pytest.raises(DuplicateModelProfileError):
+            await store.update(
+                backup.profile_id,
+                ModelProfileUpdate(
+                    name=primary.name,
+                    model=backup.model,
+                    base_url=backup.base_url,
+                    temperature=backup.temperature,
+                    timeout_seconds=backup.timeout_seconds,
+                ),
+            )
 
 
 class NamedModel:
