@@ -6,7 +6,7 @@ import asyncio
 import hmac
 import json
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import cast
 from urllib.parse import urlsplit
@@ -16,11 +16,17 @@ from websockets.asyncio.server import Server, ServerConnection, serve
 
 from nekograph.application import MessageApplication
 from nekograph.logging import fields
-from nekograph.models import ChatKind, InboundMessageEvent, OutboundMessage
+from nekograph.models import (
+    ChatKind,
+    InboundMessageEvent,
+    MessageSentEvent,
+    OneBotEvent,
+    OutboundMessage,
+    UnknownOneBotEvent,
+)
 from nekograph.protocols.onebot_v11.parser import (
     InvalidOneBotEventError,
-    UnsupportedEventError,
-    parse_message_event,
+    parse_onebot_event,
 )
 
 logger = logging.getLogger(__name__)
@@ -102,6 +108,7 @@ class ReverseWebSocketGateway:
         path: str,
         access_token: str | None,
         action_timeout_seconds: float,
+        event_handler: Callable[[OneBotEvent], Awaitable[None]] | None = None,
     ) -> None:
         self._application = application
         self._host = host
@@ -109,6 +116,7 @@ class ReverseWebSocketGateway:
         self._path = path
         self._access_token = access_token
         self._action_timeout_seconds = action_timeout_seconds
+        self._event_handler = event_handler
 
     @asynccontextmanager
     async def run(self) -> AsyncGenerator[Server]:
@@ -155,10 +163,7 @@ class ReverseWebSocketGateway:
                 if connection.resolve_action_response(payload):
                     continue
                 try:
-                    event = parse_message_event(payload)
-                except UnsupportedEventError:
-                    logger.debug("onebot_event_ignored", extra=fields(bot_id=bot_id))
-                    continue
+                    event = parse_onebot_event(payload)
                 except InvalidOneBotEventError as exc:
                     logger.warning(
                         "onebot_event_invalid",
@@ -184,9 +189,29 @@ class ReverseWebSocketGateway:
             logger.info("onebot_disconnected", extra=fields(bot_id=bot_id))
 
     async def _process_event(
-        self, connection: _OneBotConnection, event: InboundMessageEvent
+        self, connection: _OneBotConnection, event: OneBotEvent
     ) -> None:
         try:
+            if not isinstance(event, InboundMessageEvent) or isinstance(
+                event, MessageSentEvent
+            ):
+                if self._event_handler is not None:
+                    await self._event_handler(event)
+                elif isinstance(event, UnknownOneBotEvent):
+                    logger.info(
+                        "onebot_unknown_event",
+                        extra=fields(
+                            bot_id=event.bot_id,
+                            post_type=event.post_type,
+                            event_type=event.event_type,
+                        ),
+                    )
+                else:
+                    logger.debug(
+                        "onebot_event_received_without_handler",
+                        extra=fields(bot_id=event.bot_id, event_type=type(event).__name__),
+                    )
+                return
             response = await self._application.handle(event)
             if response is None:
                 return
@@ -197,5 +222,12 @@ class ReverseWebSocketGateway:
         except Exception:
             logger.exception(
                 "onebot_event_processing_failed",
-                extra=fields(bot_id=event.bot_id, message_id=event.message.message_id),
+                extra=fields(
+                    bot_id=event.bot_id,
+                    message_id=(
+                        event.message.message_id
+                        if isinstance(event, InboundMessageEvent)
+                        else None
+                    ),
+                ),
             )

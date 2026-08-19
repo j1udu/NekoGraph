@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
-from collections.abc import Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from pathlib import Path
 from socket import socket
 from typing import cast
@@ -20,6 +21,7 @@ from nekograph.models import (
     ChatKind,
     ConversationRef,
     MessageSegment,
+    OneBotNoticeEvent,
     OutboundMessage,
     RunContext,
 )
@@ -60,6 +62,25 @@ def make_gateway(*, token: str | None = None) -> ReverseWebSocketGateway:
         path="/onebot/v11/ws",
         access_token=token,
         action_timeout_seconds=0.5,
+    )
+
+
+def make_gateway_with_event_handler(
+    event_handler: Callable[[object], Awaitable[None]],
+) -> ReverseWebSocketGateway:
+    application = MessageApplication(
+        runtime=EchoRuntime(),
+        conversations=ConversationResolver(),
+        wakeup=WakeupPolicy(),
+    )
+    return ReverseWebSocketGateway(
+        application=application,
+        host="127.0.0.1",
+        port=0,
+        path="/onebot/v11/ws",
+        access_token=None,
+        action_timeout_seconds=0.5,
+        event_handler=event_handler,
     )
 
 
@@ -111,6 +132,27 @@ def test_non_numeric_onebot_target_is_rejected() -> None:
         outbound_to_action(message)
 
 
+def test_outbound_preserves_typed_protocol_segments() -> None:
+    message = OutboundMessage(
+        bot_id="10000",
+        chat=Chat(kind=ChatKind.GROUP, chat_id="30001"),
+        segments=(
+            MessageSegment(kind="image", data={"file": "https://example.test/a.jpg"}),
+            MessageSegment(kind="at", data={"qq": "20001"}),
+            MessageSegment(kind="json", data={"data": "{\"x\":1}"}),
+        ),
+    )
+
+    action, params = outbound_to_action(message)
+
+    assert action == "send_group_msg"
+    assert params["message"] == [
+        {"type": "image", "data": {"file": "https://example.test/a.jpg"}},
+        {"type": "at", "data": {"qq": "20001"}},
+        {"type": "json", "data": {"data": '{"x":1}'}},
+    ]
+
+
 async def test_reverse_websocket_event_action_and_echo_round_trip() -> None:
     gateway = make_gateway()
 
@@ -142,7 +184,6 @@ async def test_reverse_websocket_event_action_and_echo_round_trip() -> None:
                 )
             )
 
-
 async def test_bad_payload_and_failed_action_do_not_close_gateway() -> None:
     gateway = make_gateway()
 
@@ -165,7 +206,6 @@ async def test_bad_payload_and_failed_action_do_not_close_gateway() -> None:
                     }
                 )
             )
-
             await connection.send(fixture_text("private_message.json"))
             second_action = await receive_action(connection)
             assert second_action["action"] == "send_private_msg"
@@ -179,6 +219,43 @@ async def test_bad_payload_and_failed_action_do_not_close_gateway() -> None:
                     }
                 )
             )
+
+
+async def test_gateway_delivers_non_message_events_to_handler() -> None:
+    received: list[object] = []
+
+    async def handle_event(event: object) -> None:
+        received.append(event)
+
+    gateway = make_gateway_with_event_handler(handle_event)
+    async with gateway.run() as server:
+        port = server_port(server.sockets)
+        headers = {"X-Self-ID": "10000", "X-Client-Role": "Universal"}
+        async with connect(
+            f"ws://127.0.0.1:{port}/onebot/v11/ws", additional_headers=headers
+        ) as connection:
+            await connection.send(
+                json.dumps(
+                    {
+                        "time": 1723968000,
+                        "self_id": 10000,
+                        "post_type": "notice",
+                        "notice_type": "group_ban",
+                        "sub_type": "ban",
+                        "group_id": 30001,
+                        "user_id": 20001,
+                        "operator_id": 20002,
+                        "duration": 60,
+                    }
+                )
+            )
+            for _ in range(20):
+                if received:
+                    break
+                await asyncio.sleep(0.01)
+
+    assert len(received) == 1
+    assert isinstance(received[0], OneBotNoticeEvent)
 
 
 async def test_gateway_rejects_invalid_access_token() -> None:

@@ -4,7 +4,8 @@ A LangGraph-native QQ Agent Framework powered by NapCat and OneBot v11.
 
 ## 已实现
 
-- OneBot v11 反向 WebSocket 接入与统一消息模型
+- OneBot v11 反向 WebSocket、数组/CQ 消息段与类型化内部模型
+- Message、Message Sent、Notice、Request、Meta 全事件接收及未知扩展兼容
 - 私聊、群聊唤醒及 Conversation 隔离
 - LangGraph 多轮对话与 SQLite Checkpoint
 - 命令路由、Tool Registry、风险审批与 Interrupt/Resume
