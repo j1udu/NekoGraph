@@ -1,0 +1,13 @@
+:root {
+  --ng-primary: #176c52;
+  --ng-primary-hover: #125b45;
+  --ng-page-bg: #f4f6f5;
+  --ng-panel-bg: #ffffff;
+  --ng-text: #202624;
+  --ng-muted: #66716c;
+  --ng-border: #dfe4e1;
+  --ng-sidebar-width: 232px;
+  --ng-page-width: 1240px;
+  --ng-radius: 8px;
+  --ng-space: 18px;
+}

@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { NEmpty, NSpin, NTag } from 'naive-ui'
 
 import { api } from '../api'
 import type { DashboardConfig } from '../types'
+import PageHeader from '../components/layout/PageHeader.vue'
 
 const config = ref<DashboardConfig | null>(null)
 const error = ref('')
@@ -14,9 +16,11 @@ onMounted(async () => {
 
 <template>
   <section class="page">
-    <header class="page-header"><div><h1>运行设置</h1><p>当前程序正在使用的配置（仅查看）</p></div></header>
+    <PageHeader title="运行设置" description="当前程序正在使用的配置（仅查看）" />
     <div v-if="error" class="error-banner">{{ error }}</div>
-    <div v-if="config" class="settings-stack">
+    <div v-if="!config && !error" class="loading"><NSpin size="small" /> 正在读取设置…</div>
+    <NEmpty v-else-if="!config" description="暂无设置数据" />
+    <div v-else class="settings-stack">
       <section class="panel setting-section">
         <div class="panel-header"><h2>消息接入</h2><span class="section-hint">OneBot 反向 WebSocket</span></div>
         <dl><div><dt>监听地址</dt><dd>{{ config.onebot.host }}:{{ config.onebot.port }}<small>NapCat 连接到这个地址</small></dd></div><div><dt>WebSocket 路径</dt><dd>{{ config.onebot.path }}</dd></div><div><dt>访问令牌</dt><dd>{{ config.onebot.access_token_configured ? '已配置' : '未配置' }}<small>用于验证 OneBot 连接身份</small></dd></div></dl>

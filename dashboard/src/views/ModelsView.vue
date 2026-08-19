@@ -1,13 +1,19 @@
 <script setup lang="ts">
-import { Check, FileJson, Pencil, Plus, Power, Trash2, X, Zap } from '@lucide/vue'
+import { Check, FileJson, Pencil, Plus, Power, Trash2, Zap } from '@lucide/vue'
+import { NButton, NEmpty, NForm, NFormItem, NInput, NInputNumber, NModal, NPopconfirm, NSpin, NSpace, NTable, NTag } from 'naive-ui'
+import { storeToRefs } from 'pinia'
 import { onMounted, reactive, ref } from 'vue'
 
 import { api } from '../api'
-import type { ModelProfile, ModelProfileInput, RuntimeStatus } from '../types'
+import type { ModelProfile, ModelProfileInput } from '../types'
+import PageHeader from '../components/layout/PageHeader.vue'
+import { useModelStore } from '../stores/models'
+import { useRuntimeStore } from '../stores/runtime'
 
-const profiles = ref<ModelProfile[]>([])
-const status = ref<RuntimeStatus | null>(null)
-const loading = ref(true)
+const models = useModelStore()
+const runtime = useRuntimeStore()
+const { profiles, loading } = storeToRefs(models)
+const { status } = storeToRefs(runtime)
 const saving = ref(false)
 const error = ref('')
 const notice = ref('')
@@ -23,9 +29,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [items, runtime] = await Promise.all([api.models(), api.status()])
-    profiles.value = items
-    status.value = runtime
+    await Promise.all([models.refresh(), runtime.refresh()])
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '加载失败'
   } finally {
@@ -145,7 +149,6 @@ async function useEnvironment() {
 }
 
 async function remove(profile: ModelProfile) {
-  if (!window.confirm(`删除模型配置“${profile.name}”？`)) return
   error.value = ''
   try {
     await api.deleteModel(profile.profile_id)
@@ -160,20 +163,10 @@ onMounted(load)
 
 <template>
   <section class="page">
-    <header class="page-header">
-      <div>
-        <h1>模型配置</h1>
-        <p>{{ status?.model.name ?? '读取中' }} · {{ status?.model.model ?? '—' }}</p>
-      </div>
-      <div class="page-actions">
-        <button class="button secondary" type="button" @click="dialog = 'bulk'">
-          <FileJson :size="16" /> 批量导入
-        </button>
-        <button class="button primary" type="button" @click="openCreate">
-          <Plus :size="16" /> 添加模型
-        </button>
-      </div>
-    </header>
+    <PageHeader title="模型配置" :description="`${status?.model.name ?? '读取中'} · ${status?.model.model ?? '—'}`">
+      <NButton secondary @click="dialog = 'bulk'"><template #icon><FileJson :size="16" /></template>批量导入</NButton>
+      <NButton type="primary" @click="openCreate"><template #icon><Plus :size="16" /></template>添加模型</NButton>
+    </PageHeader>
 
     <div v-if="error && !dialog" class="error-banner">{{ error }}</div>
     <div v-if="notice && !dialog" class="success-banner">{{ notice }}</div>
@@ -183,16 +176,16 @@ onMounted(load)
         <span class="environment-label">环境配置</span>
         <strong>{{ status?.model.source === 'environment' ? status.model.model : 'Environment fallback' }}</strong>
       </div>
-      <span v-if="status?.model.source === 'environment'" class="badge active"><Check :size="13" /> 当前使用</span>
-      <button v-else class="button secondary" type="button" @click="useEnvironment"><Power :size="15" /> 启用</button>
+      <NTag v-if="status?.model.source === 'environment'" type="success"><Check :size="13" /> 当前使用</NTag>
+      <NButton v-else secondary @click="useEnvironment"><template #icon><Power :size="15" /></template>启用</NButton>
     </div>
 
     <div class="panel models-panel">
       <div class="panel-header"><h2>已导入模型</h2><span>{{ profiles.length }}</span></div>
-      <div v-if="loading" class="empty-state">正在读取模型配置…</div>
-      <div v-else-if="profiles.length === 0" class="empty-state">尚未导入模型</div>
+      <div v-if="loading" class="empty-state"><NSpin size="small" /> 正在读取模型配置…</div>
+      <NEmpty v-else-if="profiles.length === 0" description="尚未导入模型" />
       <div v-else class="table-wrap">
-        <table class="data-table">
+        <NTable :single-line="false" striped>
           <thead><tr><th>名称</th><th>模型 ID</th><th>Endpoint</th><th>参数</th><th>状态</th><th></th></tr></thead>
           <tbody>
             <tr v-for="profile in profiles" :key="profile.profile_id">
@@ -200,47 +193,34 @@ onMounted(load)
               <td>{{ profile.model }}</td>
               <td><div class="endpoint">{{ profile.base_url }}</div></td>
               <td><div>T {{ profile.temperature }}</div><div class="table-subtitle">{{ profile.timeout_seconds }}s timeout</div></td>
-              <td><span class="badge" :class="profile.active ? 'active' : 'inactive'">{{ profile.active ? 'Active' : 'Standby' }}</span></td>
+              <td><NTag :type="profile.active ? 'success' : 'default'">{{ profile.active ? '当前使用' : '待机' }}</NTag></td>
               <td>
                 <div class="row-actions">
-                  <button v-if="!profile.active" class="icon-button" type="button" title="激活模型" @click="activate(profile.profile_id)"><Power :size="16" /></button>
-                  <button class="icon-button" type="button" title="测试连接" :disabled="testingProfileId !== null" @click="testConnection(profile)"><Zap :size="16" /></button>
-                  <button class="icon-button" type="button" title="编辑模型" @click="openEdit(profile)"><Pencil :size="16" /></button>
-                  <button class="icon-button danger" type="button" title="删除模型" :disabled="profile.active" @click="remove(profile)"><Trash2 :size="16" /></button>
+                  <NButton v-if="!profile.active" quaternary circle title="激活模型" @click="activate(profile.profile_id)"><template #icon><Power :size="16" /></template></NButton>
+                  <NButton quaternary circle title="测试连接" :loading="testingProfileId === profile.profile_id" :disabled="testingProfileId !== null" @click="testConnection(profile)"><template #icon><Zap :size="16" /></template></NButton>
+                  <NButton quaternary circle title="编辑模型" @click="openEdit(profile)"><template #icon><Pencil :size="16" /></template></NButton>
+                  <NPopconfirm v-if="!profile.active" @positive-click="remove(profile)"><template #trigger><NButton quaternary circle type="error" title="删除模型"><template #icon><Trash2 :size="16" /></template></NButton></template>删除模型配置“{{ profile.name }}”？</NPopconfirm>
                 </div>
               </td>
             </tr>
           </tbody>
-        </table>
+        </NTable>
       </div>
     </div>
 
-    <div v-if="dialog" class="modal-backdrop" @click.self="closeDialog">
-      <div class="modal" role="dialog" aria-modal="true">
-        <div class="modal-header">
-          <h2>{{ dialog === 'single' ? '添加模型' : dialog === 'edit' ? '编辑模型' : '批量导入模型' }}</h2>
-          <button class="icon-button" type="button" title="关闭" @click="closeDialog"><X :size="18" /></button>
-        </div>
-        <div class="modal-body">
+    <NModal :show="dialog !== null" preset="card" style="width: min(620px, calc(100vw - 32px))" :title="dialog === 'single' ? '添加模型' : dialog === 'edit' ? '编辑模型' : '批量导入模型'" @update:show="(show) => !show && closeDialog()">
+        <div>
           <div v-if="error" class="error-banner">{{ error }}</div>
           <form v-if="dialog === 'single' || dialog === 'edit'" @submit.prevent="submitSingle">
-            <div class="form-grid">
-              <div class="field"><label for="model-name">显示名称</label><input id="model-name" v-model="form.name" required /></div>
-              <div class="field"><label for="model-id">模型 ID</label><input id="model-id" v-model="form.model" required /></div>
-              <div class="field full"><label for="base-url">Base URL</label><input id="base-url" v-model="form.base_url" type="url" required /></div>
-              <div class="field full"><label for="api-key">API Key{{ dialog === 'edit' ? '（留空则保留）' : '' }}</label><input id="api-key" v-model="form.api_key" type="password" autocomplete="off" :required="dialog === 'single'" /></div>
-              <div class="field"><label for="temperature">Temperature</label><input id="temperature" v-model.number="form.temperature" type="number" min="0" max="2" step="0.1" required /></div>
-              <div class="field"><label for="timeout">Timeout (s)</label><input id="timeout" v-model.number="form.timeout_seconds" type="number" min="1" max="600" required /></div>
-            </div>
-            <div class="form-actions"><button class="button secondary" type="button" @click="closeDialog">取消</button><button class="button primary" type="submit" :disabled="saving">保存</button></div>
+            <NForm label-placement="top"><NFormItem label="显示名称" required><NInput v-model:value="form.name" placeholder="例如：主力模型" /></NFormItem><NFormItem label="模型 ID" required><NInput v-model:value="form.model" placeholder="填写服务商提供的模型标识" /></NFormItem><NFormItem label="Base URL" required><NInput v-model:value="form.base_url" placeholder="例如：https://api.example.com/v1" /></NFormItem><NFormItem :label="`API Key${dialog === 'edit' ? '（留空则保留）' : ''}`" :required="dialog === 'single'"><NInput v-model:value="form.api_key" type="password" show-password-on="click" placeholder="不会在页面中回显已保存的密钥" /></NFormItem><NSpace><NFormItem label="Temperature" required><NInputNumber v-model:value="form.temperature" :min="0" :max="2" :step="0.1" /></NFormItem><NFormItem label="超时（秒）" required><NInputNumber v-model:value="form.timeout_seconds" :min="1" :max="600" /></NFormItem></NSpace></NForm>
+            <div class="form-actions"><NButton secondary @click="closeDialog">取消</NButton><NButton type="primary" attr-type="submit" :loading="saving">保存</NButton></div>
           </form>
           <form v-else @submit.prevent="submitBulk">
-            <div class="field full"><label for="bulk-json">JSON Profiles</label><textarea id="bulk-json" v-model="bulkJson" spellcheck="false" required /></div>
-            <div class="form-actions"><button class="button secondary" type="button" @click="closeDialog">取消</button><button class="button primary" type="submit" :disabled="saving">导入</button></div>
+            <NFormItem label="模型配置 JSON" required><NInput v-model:value="bulkJson" type="textarea" :autosize="{ minRows: 10, maxRows: 20 }" /></NFormItem>
+            <div class="form-actions"><NButton secondary @click="closeDialog">取消</NButton><NButton type="primary" attr-type="submit" :loading="saving">导入</NButton></div>
           </form>
         </div>
-      </div>
-    </div>
+    </NModal>
   </section>
 </template>
 

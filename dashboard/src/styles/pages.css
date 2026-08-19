@@ -1,0 +1,10 @@
+.settings-stack { display: grid; gap: 16px; }
+.setting-section dl { margin: 0; padding: 5px 18px; }
+.setting-section dl > div { min-height: 52px; display: grid; grid-template-columns: 180px 1fr; align-items: center; gap: 20px; border-bottom: 1px solid #e8ecea; }
+.setting-section dl > div:last-child { border-bottom: 0; }
+.setting-section dt { color: #6d7772; font-size: 12px; }
+.setting-section dd { margin: 0; overflow-wrap: anywhere; font-size: 13px; }
+.setting-section dd small { display: block; margin-top: 4px; color: #89948f; font-size: 11px; }
+.section-hint { color: #89948f; font-size: 11px; }
+.log-panel { overflow: hidden; }
+@media (max-width: 620px) { .setting-section dl > div { grid-template-columns: 1fr; gap: 5px; padding: 10px 0; } }

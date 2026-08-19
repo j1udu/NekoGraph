@@ -1,14 +1,25 @@
 <script setup lang="ts">
 import { Activity, Boxes, Clock3, Database, RefreshCw, Wrench } from '@lucide/vue'
+import { NButton, NDataTable, NEmpty, NSpin, NTag } from 'naive-ui'
+import type { DataTableColumns } from 'naive-ui'
 import { computed, onMounted, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 
 import { api } from '../api'
-import type { LogEntry, RuntimeStatus } from '../types'
+import type { LogEntry } from '../types'
+import PageHeader from '../components/layout/PageHeader.vue'
+import { useRuntimeStore } from '../stores/runtime'
 
-const status = ref<RuntimeStatus | null>(null)
+const runtime = useRuntimeStore()
+const { status, loading } = storeToRefs(runtime)
 const logs = ref<LogEntry[]>([])
-const loading = ref(true)
 const error = ref('')
+const columns: DataTableColumns<LogEntry> = [
+  { title: '时间', key: 'timestamp', render: (row) => time(row.timestamp) },
+  { title: '级别', key: 'level', render: (row) => row.level },
+  { title: '事件', key: 'event' },
+  { title: '模块', key: 'logger' },
+]
 
 const uptime = computed(() => {
   const seconds = status.value?.uptime_seconds ?? 0
@@ -27,8 +38,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [runtime, recent] = await Promise.all([api.status(), api.logs(8)])
-    status.value = runtime
+    const [, recent] = await Promise.all([runtime.refresh(), api.logs(8)])
     logs.value = recent.reverse()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '加载失败'
@@ -42,18 +52,12 @@ onMounted(load)
 
 <template>
   <section class="page">
-    <header class="page-header">
-      <div>
-        <h1>运行概览</h1>
-        <p>NekoGraph v{{ status?.version ?? '—' }}</p>
-      </div>
-      <button class="button secondary" type="button" :disabled="loading" @click="load">
-        <RefreshCw :size="16" /> 刷新
-      </button>
-    </header>
+    <PageHeader title="运行概览" :description="`NekoGraph v${status?.version ?? '—'}`">
+      <NButton secondary :loading="loading" @click="load"><template #icon><RefreshCw :size="16" /></template>刷新</NButton>
+    </PageHeader>
 
     <div v-if="error" class="error-banner">{{ error }}</div>
-    <div v-if="loading && !status" class="loading">正在读取运行状态…</div>
+    <div v-if="loading && !status" class="loading"><NSpin size="small" /> 正在读取运行状态…</div>
 
     <template v-else-if="status">
       <div class="metrics">
@@ -84,20 +88,8 @@ onMounted(load)
           <h2>最近活动</h2>
           <Wrench :size="17" />
         </div>
-        <div v-if="logs.length === 0" class="empty-state">暂无运行日志</div>
-        <div v-else class="table-wrap">
-          <table class="data-table">
-            <thead><tr><th>时间</th><th>级别</th><th>事件</th><th>模块</th></tr></thead>
-            <tbody>
-              <tr v-for="entry in logs" :key="`${entry.timestamp}-${entry.event}`">
-                <td>{{ time(entry.timestamp) }}</td>
-                <td><span class="badge" :class="entry.level === 'error' ? 'error' : 'inactive'">{{ entry.level }}</span></td>
-                <td class="table-title">{{ entry.event }}</td>
-                <td class="table-subtitle">{{ entry.logger }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <NEmpty v-if="logs.length === 0" description="暂无运行日志" />
+        <NDataTable v-else :columns="columns" :data="logs" :row-key="(row) => `${row.timestamp}-${row.event}`" :bordered="false" />
       </div>
     </template>
   </section>

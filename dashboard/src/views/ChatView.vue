@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { MessageSquarePlus, Pencil, Send, Sparkles, Trash2 } from '@lucide/vue'
+import { MessageSquarePlus, Pencil, Send, Trash2 } from '@lucide/vue'
+import { NButton, NInput, NModal, NPopconfirm } from 'naive-ui'
 import { computed, nextTick, onMounted, ref } from 'vue'
 
 import { api } from '../api'
 import type { ConversationSummary, HistoryMessage } from '../types'
+import nekoGraphLogo from '../assets/nekograph-logo.png'
 
 const storageKey = 'nekograph.web.conversations'
 const activeKey = 'nekograph.web.active-conversation'
@@ -46,6 +48,8 @@ const input = ref('')
 const sending = ref(false)
 const error = ref('')
 const list = ref<HTMLElement | null>(null)
+const renamingConversation = ref<ConversationSummary | null>(null)
+const renameTitle = ref('')
 
 function persistConversations() {
   localStorage.setItem(storageKey, JSON.stringify(conversations.value))
@@ -116,15 +120,21 @@ function newConversation() {
 
 function renameConversation(conversation: ConversationSummary) {
   if (sending.value) return
-  const title = window.prompt('请输入新的对话名称', conversation.title)?.trim()
-  if (!title || title === conversation.title) return
+  renamingConversation.value = conversation
+  renameTitle.value = conversation.title
+}
+
+function submitRename() {
+  const conversation = renamingConversation.value
+  const title = renameTitle.value.trim()
+  if (!conversation || !title) return
   conversation.title = title.slice(0, 80)
   persistConversations()
+  renamingConversation.value = null
 }
 
 async function removeConversation(conversation: ConversationSummary) {
   if (sending.value) return
-  if (!window.confirm(`删除对话“${conversation.title}”？`)) return
   error.value = ''
   try {
     await api.deleteConversation(conversation.id)
@@ -163,9 +173,7 @@ onMounted(() => {
         <h1>本地对话</h1>
         <p>{{ activeConversation?.title ?? '新对话' }}</p>
       </div>
-      <button class="button primary" type="button" :disabled="sending" @click="newConversation">
-        <MessageSquarePlus :size="16" /> 新建对话
-      </button>
+      <NButton type="primary" :disabled="sending" @click="newConversation"><template #icon><MessageSquarePlus :size="16" /></template>新建对话</NButton>
     </header>
 
     <div class="chat-layout">
@@ -183,15 +191,14 @@ onMounted(() => {
           @keydown.space.prevent="selectConversation(conversation.id)"
         >
           <span class="conversation-item-copy"><strong>{{ conversation.title }}</strong><small>{{ new Date(conversation.created_at).toLocaleDateString() }}</small></span>
-          <button class="conversation-rename" type="button" title="重命名对话" @click.stop="renameConversation(conversation)"><Pencil :size="15" /></button>
-          <button class="conversation-delete" type="button" title="删除对话" @click.stop="removeConversation(conversation)"><Trash2 :size="15" /></button>
+          <NButton quaternary circle class="conversation-rename" title="重命名对话" @click.stop="renameConversation(conversation)"><template #icon><Pencil :size="15" /></template></NButton>
+          <NPopconfirm @positive-click="removeConversation(conversation)"><template #trigger><NButton quaternary circle type="error" class="conversation-delete" title="删除对话" @click.stop><template #icon><Trash2 :size="15" /></template></NButton></template>删除对话“{{ conversation.title }}”？</NPopconfirm>
         </div>
       </aside>
       <div class="chat-surface panel">
       <div ref="list" class="message-list">
         <div v-if="messages.length === 0" class="chat-empty">
-          <div class="chat-empty-icon"><Sparkles :size="23" /></div>
-          <strong>NekoGraph</strong>
+          <img class="chat-empty-logo" :src="nekoGraphLogo" alt="NekoGraph" />
         </div>
         <div
           v-for="(message, index) in messages"
@@ -210,19 +217,17 @@ onMounted(() => {
       </div>
       <div v-if="error" class="chat-error">{{ error }}</div>
       <div class="chat-composer">
-        <textarea
-          v-model="input"
-          rows="2"
-          placeholder="输入消息"
-          :disabled="sending"
-          @keydown="onKeydown"
-        />
-        <button class="send-button" type="button" title="发送" :disabled="!input.trim() || sending" @click="send">
-          <Send :size="18" />
-        </button>
+        <NInput v-model:value="input" type="textarea" :autosize="{ minRows: 2, maxRows: 6 }" placeholder="输入消息，Enter 发送，Shift+Enter 换行" :disabled="sending" @keydown="onKeydown" />
+        <NButton type="primary" class="send-button" title="发送" :disabled="!input.trim() || sending" :loading="sending" @click="send"><template #icon><Send :size="18" /></template></NButton>
       </div>
       </div>
     </div>
+    <NModal :show="renamingConversation !== null" preset="card" title="重命名对话" style="width: min(440px, calc(100vw - 32px))" @update:show="(show) => !show && (renamingConversation = null)">
+      <form @submit.prevent="submitRename">
+        <NInput v-model:value="renameTitle" maxlength="80" show-count autofocus placeholder="输入新的对话名称" />
+        <div class="form-actions"><NButton secondary @click="renamingConversation = null">取消</NButton><NButton type="primary" attr-type="submit" :disabled="!renameTitle.trim()">保存</NButton></div>
+      </form>
+    </NModal>
   </section>
 </template>
 
@@ -246,7 +251,7 @@ onMounted(() => {
 .chat-surface { min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .message-list { flex: 1; overflow-y: auto; padding: 26px max(20px, 7%); }
 .chat-empty { height: 100%; min-height: 260px; display: grid; place-content: center; justify-items: center; gap: 10px; color: #62706a; }
-.chat-empty-icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 8px; background: #dff2e8; color: #176447; }
+.chat-empty-logo { width: min(190px, 48vw); height: auto; object-fit: contain; }
 .message-row { max-width: 780px; margin: 0 auto 22px; }
 .message-label { margin-bottom: 7px; color: #6f7974; font-size: 11px; font-weight: 700; }
 .message-row.user .message-label { text-align: right; }

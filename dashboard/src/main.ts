@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
+import { createPinia } from 'pinia'
 
 import App from './App.vue'
 import ChatView from './views/ChatView.vue'
@@ -9,6 +10,10 @@ import OverviewView from './views/OverviewView.vue'
 import SettingsView from './views/SettingsView.vue'
 import ToolsView from './views/ToolsView.vue'
 import './styles.css'
+import './styles/tokens.css'
+import './styles/layout.css'
+import './styles/components.css'
+import './styles/pages.css'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -22,4 +27,4 @@ const router = createRouter({
   ],
 })
 
-createApp(App).use(router).mount('#app')
+createApp(App).use(createPinia()).use(router).mount('#app')
