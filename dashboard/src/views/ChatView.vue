@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { MessageSquarePlus, Send, Sparkles, Trash2 } from '@lucide/vue'
+import { MessageSquarePlus, Pencil, Send, Sparkles, Trash2 } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref } from 'vue'
 
 import { api } from '../api'
@@ -71,12 +71,17 @@ async function send() {
   if (!text || sending.value) return
   input.value = ''
   error.value = ''
-  messages.value.push({ role: 'user', content: text, tool_calls: [] })
+  messages.value.push({ role: 'user', content: text, tool_calls: [], response_time_ms: null })
   sending.value = true
   await scrollToBottom()
   try {
     const response = await api.send(activeConversationId.value, text)
-    messages.value.push({ role: 'assistant', content: response.content, tool_calls: [] })
+    messages.value.push({
+      role: 'assistant',
+      content: response.content,
+      tool_calls: [],
+      response_time_ms: response.response_time_ms,
+    })
     const conversation = activeConversation.value
     if (conversation && conversation.title === '新对话') {
       conversation.title = text.slice(0, 28)
@@ -106,6 +111,14 @@ function newConversation() {
   activeConversationId.value = conversation.id
   messages.value = []
   error.value = ''
+  persistConversations()
+}
+
+function renameConversation(conversation: ConversationSummary) {
+  if (sending.value) return
+  const title = window.prompt('请输入新的对话名称', conversation.title)?.trim()
+  if (!title || title === conversation.title) return
+  conversation.title = title.slice(0, 80)
   persistConversations()
 }
 
@@ -170,6 +183,7 @@ onMounted(() => {
           @keydown.space.prevent="selectConversation(conversation.id)"
         >
           <span class="conversation-item-copy"><strong>{{ conversation.title }}</strong><small>{{ new Date(conversation.created_at).toLocaleDateString() }}</small></span>
+          <button class="conversation-rename" type="button" title="重命名对话" @click.stop="renameConversation(conversation)"><Pencil :size="15" /></button>
           <button class="conversation-delete" type="button" title="删除对话" @click.stop="removeConversation(conversation)"><Trash2 :size="15" /></button>
         </div>
       </aside>
@@ -187,6 +201,7 @@ onMounted(() => {
         >
           <div class="message-label">{{ message.role === 'user' ? 'You' : message.role === 'tool' ? 'Tool' : 'NekoGraph' }}</div>
           <div class="message-bubble">{{ message.content }}</div>
+          <div v-if="message.role === 'assistant' && message.response_time_ms !== null" class="message-meta">响应耗时 {{ message.response_time_ms }} ms</div>
         </div>
         <div v-if="sending" class="message-row assistant">
           <div class="message-label">NekoGraph</div>
@@ -226,6 +241,8 @@ onMounted(() => {
 .conversation-item-copy small { margin-top: 4px; color: #81908a; font-size: 11px; }
 .conversation-delete { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; color: #9a6767; }
 .conversation-delete:hover { background: #f9e7e7; color: #a33c3c; }
+.conversation-rename { width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: #6b8176; }
+.conversation-rename:hover { background: #e1eee7; color: #176447; }
 .chat-surface { min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .message-list { flex: 1; overflow-y: auto; padding: 26px max(20px, 7%); }
 .chat-empty { height: 100%; min-height: 260px; display: grid; place-content: center; justify-items: center; gap: 10px; color: #62706a; }
@@ -237,6 +254,7 @@ onMounted(() => {
 .message-row.user .message-bubble { margin-left: auto; background: #1d7257; color: #fff; }
 .message-row.tool .message-bubble { background: #fff2d9; border: 1px solid #ebd5aa; }
 .message-bubble.pending { color: #71807a; }
+.message-meta { margin-top: 5px; color: #87938d; font-size: 11px; }
 .chat-error { padding: 9px 18px; color: #943d3d; background: #fff0f0; border-top: 1px solid #eccaca; font-size: 12px; }
 .chat-composer { min-height: 84px; padding: 14px; border-top: 1px solid #e1e6e3; display: grid; grid-template-columns: 1fr 42px; gap: 10px; align-items: end; }
 .chat-composer textarea { width: 100%; min-height: 54px; max-height: 150px; resize: vertical; border: 1px solid #cfd7d3; border-radius: 7px; padding: 10px 12px; outline: none; }

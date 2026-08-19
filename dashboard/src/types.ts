@@ -55,11 +55,13 @@ export interface HistoryMessage {
   role: string
   content: string
   tool_calls: Record<string, unknown>[]
+  response_time_ms: number | null
 }
 
 export interface ChatResponse {
   message_id: string
   content: string
+  response_time_ms: number | null
 }
 
 export interface ConversationSummary {

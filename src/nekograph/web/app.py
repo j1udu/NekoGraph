@@ -52,12 +52,14 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     message_id: str
     content: str
+    response_time_ms: int | None = None
 
 
 class HistoryMessage(BaseModel):
     role: str
     content: str
     tool_calls: list[dict[str, Any]] = Field(default_factory=lambda: [])
+    response_time_ms: int | None = None
 
 
 class ModelImportRequest(BaseModel):
@@ -84,7 +86,9 @@ def _message_content(message: BaseMessage) -> str:
     return message.content if isinstance(message.content, str) else str(message.content)
 
 
-def _history_message(message: BaseMessage) -> HistoryMessage:
+def _history_message(
+    message: BaseMessage, response_time_ms: int | None = None
+) -> HistoryMessage:
     if isinstance(message, HumanMessage):
         return HistoryMessage(role="user", content=_message_content(message))
     if isinstance(message, ToolMessage):
@@ -94,6 +98,7 @@ def _history_message(message: BaseMessage) -> HistoryMessage:
             role="assistant",
             content=_message_content(message),
             tool_calls=[dict(item) for item in message.tool_calls],
+            response_time_ms=response_time_ms,
         )
     return HistoryMessage(role=message.type, content=_message_content(message))
 
@@ -165,12 +170,21 @@ def create_dashboard_app(settings: Settings | None = None) -> FastAPI:
         conversation_id: ConversationId, body: ChatRequest, request: Request
     ) -> ChatResponse:
         context = _context(request)
+        conversation = context.chat.conversation(conversation_id)
+        previous = await context.resources.runtime.history(conversation)
+        turn_index = sum(isinstance(message, HumanMessage) for message in previous) + 1
+        started = datetime.now(UTC)
         response = await context.chat.send(conversation_id, body.text)
+        elapsed_ms = max(0, int((datetime.now(UTC) - started).total_seconds() * 1000))
         if response is None:
             raise HTTPException(status_code=500, detail="chat produced no response")
+        await context.resources.conversation_metadata.record_response_time(
+            conversation_id, turn_index, elapsed_ms
+        )
         return ChatResponse(
             message_id=response.reply_to or "",
             content=_outbound_text(response.segments),
+            response_time_ms=elapsed_ms,
         )
 
     @app.get(
@@ -182,7 +196,16 @@ def create_dashboard_app(settings: Settings | None = None) -> FastAPI:
         context = _context(request)
         conversation = context.chat.conversation(conversation_id)
         messages = await context.resources.runtime.history(conversation)
-        return [_history_message(message) for message in messages]
+        response_times = await context.resources.conversation_metadata.response_times(
+            conversation_id
+        )
+        turn_index = 0
+        history: list[HistoryMessage] = []
+        for message in messages:
+            if isinstance(message, HumanMessage):
+                turn_index += 1
+            history.append(_history_message(message, response_times.get(turn_index)))
+        return history
 
     @app.post("/api/chat/{conversation_id}/reset", response_model=ChatResponse)
     async def reset_chat(
@@ -201,6 +224,7 @@ def create_dashboard_app(settings: Settings | None = None) -> FastAPI:
     async def delete_chat(conversation_id: ConversationId, request: Request) -> None:
         context = _context(request)
         await context.resources.runtime.reset(context.chat.conversation(conversation_id))
+        await context.resources.conversation_metadata.delete(conversation_id)
 
     @app.get("/api/models", response_model=list[ModelProfileView])
     async def list_models(request: Request) -> list[ModelProfileView]:

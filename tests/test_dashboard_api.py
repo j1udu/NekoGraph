@@ -78,6 +78,8 @@ async def test_dashboard_status_tools_config_and_chat(tmp_path: Path) -> None:
         ("user", "hello dashboard"),
         ("assistant", "Fake response turn 1: hello dashboard"),
     ]
+    assert reply.json()["response_time_ms"] >= 0
+    assert history_data[1]["response_time_ms"] == reply.json()["response_time_ms"]
     assert reset.status_code == 200
     assert "reset" in reset.json()["content"].lower()
 

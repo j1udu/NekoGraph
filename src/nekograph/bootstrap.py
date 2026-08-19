@@ -19,6 +19,7 @@ from nekograph.agent import (
     OpenAICompatibleConfig,
 )
 from nekograph.application.conversation import ConversationResolver
+from nekograph.application.conversation_metadata import ConversationMetadataStore
 from nekograph.application.scheduler import ConversationScheduler
 from nekograph.application.service import MessageApplication
 from nekograph.application.wakeup import WakeupPolicy
@@ -69,6 +70,7 @@ class RuntimeResources:
     models: ModelController
     model_profiles: ModelProfileStore
     tools: ToolRegistry
+    conversation_metadata: ConversationMetadataStore
 
     def application(self, *, conversation_namespace: str = "qq:v1") -> MessageApplication:
         return MessageApplication(
@@ -92,6 +94,9 @@ async def open_runtime_resources(settings: Settings) -> AsyncGenerator[RuntimeRe
     async with (
         open_configured_model(settings) as fallback,
         ModelProfileStore.open(settings.model_profiles_path) as model_profiles,
+        ConversationMetadataStore.open(
+            settings.conversation_metadata_path
+        ) as conversation_metadata,
     ):
         fallback_model, fallback_info = fallback
         models = ModelController(
@@ -115,6 +120,7 @@ async def open_runtime_resources(settings: Settings) -> AsyncGenerator[RuntimeRe
                     models=models,
                     model_profiles=model_profiles,
                     tools=tools,
+                    conversation_metadata=conversation_metadata,
                 )
         finally:
             await models.aclose()

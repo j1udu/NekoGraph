@@ -14,20 +14,20 @@ onMounted(async () => {
 
 <template>
   <section class="page">
-    <header class="page-header"><div><h1>运行设置</h1><p>Read-only effective configuration</p></div></header>
+    <header class="page-header"><div><h1>运行设置</h1><p>当前程序正在使用的配置（仅查看）</p></div></header>
     <div v-if="error" class="error-banner">{{ error }}</div>
     <div v-if="config" class="settings-stack">
       <section class="panel setting-section">
-        <div class="panel-header"><h2>OneBot Gateway</h2></div>
-        <dl><div><dt>Listen</dt><dd>{{ config.onebot.host }}:{{ config.onebot.port }}</dd></div><div><dt>Path</dt><dd>{{ config.onebot.path }}</dd></div><div><dt>Access token</dt><dd>{{ config.onebot.access_token_configured ? 'Configured' : 'Not configured' }}</dd></div></dl>
+        <div class="panel-header"><h2>消息接入</h2><span class="section-hint">OneBot 反向 WebSocket</span></div>
+        <dl><div><dt>监听地址</dt><dd>{{ config.onebot.host }}:{{ config.onebot.port }}<small>NapCat 连接到这个地址</small></dd></div><div><dt>WebSocket 路径</dt><dd>{{ config.onebot.path }}</dd></div><div><dt>访问令牌</dt><dd>{{ config.onebot.access_token_configured ? '已配置' : '未配置' }}<small>用于验证 OneBot 连接身份</small></dd></div></dl>
       </section>
       <section class="panel setting-section">
-        <div class="panel-header"><h2>Agent State</h2></div>
-        <dl><div><dt>Checkpoint</dt><dd>{{ config.agent.checkpoint_backend }}</dd></div><div><dt>Group isolation</dt><dd>{{ config.agent.group_conversation_mode }}</dd></div><div><dt>Wake prefixes</dt><dd>{{ config.agent.group_wake_prefixes.join(', ') }}</dd></div></dl>
+        <div class="panel-header"><h2>智能体对话</h2><span class="section-hint">上下文与群聊策略</span></div>
+        <dl><div><dt>上下文保存方式</dt><dd>{{ config.agent.checkpoint_backend === 'sqlite' ? 'SQLite 本地数据库' : config.agent.checkpoint_backend }}<small>用于保存多轮对话进度</small></dd></div><div><dt>群聊上下文隔离</dt><dd>{{ config.agent.group_conversation_mode === 'per_user' ? '按群内用户分别保存' : '整个群共享一份上下文' }}<small>决定群聊中不同用户是否共享记忆</small></dd></div><div><dt>群聊唤醒前缀</dt><dd>{{ config.agent.group_wake_prefixes.join('、') }}<small>群聊消息以这些前缀开头时才会触发 Agent</small></dd></div></dl>
       </section>
       <section class="panel setting-section">
-        <div class="panel-header"><h2>Tool Policy</h2></div>
-        <dl><div><dt>Permissions</dt><dd>{{ config.tools.permissions.join(', ') || 'None' }}</dd></div><div><dt>Dangerous tools</dt><dd>{{ config.tools.allow_dangerous ? 'Enabled' : 'Disabled' }}</dd></div><div><dt>Approval TTL</dt><dd>{{ config.tools.approval_ttl_seconds }}s</dd></div></dl>
+        <div class="panel-header"><h2>工具安全</h2><span class="section-hint">工具调用权限与审批</span></div>
+        <dl><div><dt>已授权权限</dt><dd>{{ config.tools.permissions.join('、') || '无' }}<small>允许工具执行的权限范围</small></dd></div><div><dt>危险工具</dt><dd>{{ config.tools.allow_dangerous ? '允许执行' : '禁止执行' }}<small>涉及文件、系统或外部副作用的工具</small></dd></div><div><dt>审批有效期</dt><dd>{{ config.tools.approval_ttl_seconds }} 秒<small>用户确认危险操作后，审批保持有效的时间</small></dd></div></dl>
       </section>
     </div>
   </section>
@@ -40,5 +40,7 @@ onMounted(async () => {
 .setting-section dl > div:last-child { border-bottom: 0; }
 .setting-section dt { color: #6d7772; font-size: 12px; }
 .setting-section dd { margin: 0; overflow-wrap: anywhere; font-size: 13px; }
+.setting-section dd small { display: block; margin-top: 4px; color: #89948f; font-size: 11px; }
+.section-hint { color: #89948f; font-size: 11px; }
 @media (max-width: 620px) { .setting-section dl > div { grid-template-columns: 1fr; gap: 5px; padding: 10px 0; } }
 </style>

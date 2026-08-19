@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     access_token: str | None = None
     action_timeout_seconds: float = Field(default=10.0, gt=0)
     checkpoint_path: Path = Path("data/checkpoints.sqlite")
+    conversation_metadata_path: Path = Path("data/conversations.sqlite")
     group_conversation_mode: GroupConversationMode = GroupConversationMode.PER_USER
     group_wake_prefixes: tuple[str, ...] = ("neko",)
     model_backend: ModelBackend = ModelBackend.FAKE
