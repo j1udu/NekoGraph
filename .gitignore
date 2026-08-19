@@ -10,5 +10,6 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+docs/
 data/*.sqlite*
 data/tool-sandbox/
