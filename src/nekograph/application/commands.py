@@ -33,6 +33,12 @@ class CommandRegistry:
 
     def __init__(self) -> None:
         self._commands: dict[str, CommandDefinition] = {}
+        self._reserved: set[str] = set()
+
+    def reserve(self, name: str) -> None:
+        if not _COMMAND_NAME.fullmatch(name):
+            raise CommandRegistrationError(f"invalid command name: {name!r}; expected /name")
+        self._reserved.add(name.casefold())
 
     def register(self, definition: CommandDefinition) -> None:
         if not _COMMAND_NAME.fullmatch(definition.name):
@@ -47,6 +53,8 @@ class CommandRegistry:
             raise CommandRegistrationError(
                 f"command source is empty: {definition.name}"
             )
+        if definition.name.casefold() in self._reserved and definition.source != "core":
+            raise CommandRegistrationError(f"command name is reserved: {definition.name}")
         if definition.name.casefold() in {
             name.casefold() for name in self._commands
         }:
@@ -108,9 +116,7 @@ class CommandRouter:
             return "Command failed to execute. Please try again later."
 
 
-def build_core_command_registry(runtime: AgentRuntime) -> CommandRegistry:
-    registry = CommandRegistry()
-
+def register_core_commands(registry: CommandRegistry, runtime: AgentRuntime) -> None:
     async def help_command(_context: RunContext, _args: tuple[str, ...]) -> str:
         commands = ", ".join(command.name for command in registry.definitions())
         return f"Available commands: {commands}"
@@ -140,4 +146,11 @@ def build_core_command_registry(runtime: AgentRuntime) -> CommandRegistry:
         CommandDefinition("/deny", "Deny a pending tool request.", deny_command, "core"),
     ):
         registry.register(definition)
+
+
+def build_core_command_registry(runtime: AgentRuntime) -> CommandRegistry:
+    registry = CommandRegistry()
+    for name in ("/help", "/status", "/reset", "/approve", "/deny"):
+        registry.reserve(name)
+    register_core_commands(registry, runtime)
     return registry

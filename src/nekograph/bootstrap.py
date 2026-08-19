@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
@@ -18,12 +18,14 @@ from nekograph.agent import (
     OpenAICompatibleChatModel,
     OpenAICompatibleConfig,
 )
+from nekograph.application.commands import CommandRegistry, register_core_commands
 from nekograph.application.conversation import ConversationResolver
 from nekograph.application.conversation_metadata import ConversationMetadataStore
 from nekograph.application.scheduler import ConversationScheduler
 from nekograph.application.service import MessageApplication
 from nekograph.application.wakeup import WakeupPolicy
 from nekograph.config import ModelBackend, Settings
+from nekograph.plugins import Plugin, PluginManager
 from nekograph.tools import ToolExecutionContext, ToolRegistry, build_core_tool_registry
 
 logger = logging.getLogger(__name__)
@@ -70,6 +72,8 @@ class RuntimeResources:
     models: ModelController
     model_profiles: ModelProfileStore
     tools: ToolRegistry
+    commands: CommandRegistry
+    plugins: PluginManager
     conversation_metadata: ConversationMetadataStore
 
     def application(self, *, conversation_namespace: str = "qq:v1") -> MessageApplication:
@@ -81,12 +85,22 @@ class RuntimeResources:
             ),
             wakeup=WakeupPolicy(self.settings.group_wake_prefixes),
             scheduler=ConversationScheduler(),
+            commands=self.commands,
         )
 
 
 @asynccontextmanager
-async def open_runtime_resources(settings: Settings) -> AsyncGenerator[RuntimeResources]:
+async def open_runtime_resources(
+    settings: Settings,
+    *,
+    plugins: Iterable[Plugin] = (),
+) -> AsyncGenerator[RuntimeResources]:
     tools = build_core_tool_registry(settings.tool_sandbox_path)
+    commands = CommandRegistry()
+    for name in ("/help", "/status", "/reset", "/approve", "/deny"):
+        commands.reserve(name)
+    plugin_manager = PluginManager(tool_registry=tools, command_registry=commands)
+    await plugin_manager.load_all(plugins)
     tool_context = ToolExecutionContext(
         permissions=frozenset(settings.tool_permissions),
         allow_dangerous=settings.allow_dangerous_tools,
@@ -114,13 +128,17 @@ async def open_runtime_resources(settings: Settings) -> AsyncGenerator[RuntimeRe
                 execution_ledger_path=settings.tool_execution_ledger_path,
                 approval_ttl_seconds=settings.tool_approval_ttl_seconds,
             ) as runtime:
+                register_core_commands(commands, runtime)
                 yield RuntimeResources(
                     settings=settings,
                     runtime=runtime,
                     models=models,
                     model_profiles=model_profiles,
                     tools=tools,
+                    commands=commands,
+                    plugins=plugin_manager,
                     conversation_metadata=conversation_metadata,
                 )
         finally:
+            await plugin_manager.shutdown()
             await models.aclose()

@@ -45,7 +45,17 @@ class ToolRegistry:
             raise ToolRegistrationError(f"tool description is empty: {definition.name}")
         if definition.timeout_seconds <= 0:
             raise ToolRegistrationError(f"tool timeout must be positive: {definition.name}")
+        if not definition.source.strip():
+            raise ToolRegistrationError(f"tool source is empty: {definition.name}")
         self._definitions[definition.name] = definition
+
+    def unregister_owner(self, source: str) -> None:
+        """Remove all tools registered by one owner during plugin rollback."""
+        self._definitions = {
+            name: definition
+            for name, definition in self._definitions.items()
+            if definition.source != source
+        }
 
     def definitions(self) -> tuple[ToolDefinition, ...]:
         return tuple(self._definitions.values())
