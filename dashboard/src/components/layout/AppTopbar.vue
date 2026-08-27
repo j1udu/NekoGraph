@@ -6,7 +6,7 @@ import { useRoute } from 'vue-router'
 
 defineEmits<{ toggleMenu: [] }>()
 const route = useRoute()
-const titles: Record<string, string> = { '/': '运行概览', '/chat': '本地对话', '/models': '模型配置', '/tools': '工具注册表', '/logs': '运行日志', '/settings': '运行设置' }
+const titles: Record<string, string> = { '/': '运行概览', '/chat': '本地对话', '/models': '模型配置', '/tools': '工具注册表', '/knowledge': '专题知识库', '/biliwatch': 'B站推送', '/scheduled-tasks': '定时任务', '/logs': '运行日志', '/settings': '运行设置' }
 const title = computed(() => titles[route.path] ?? 'NekoGraph')
 </script>
 

@@ -14,6 +14,14 @@ import type {
   TaskRun,
   ConnectedOneBot,
   OneBotActionRecord,
+  KnowledgeCollection,
+  KnowledgeDocument,
+  KnowledgeSearchResult,
+  BiliWatchConfig,
+  BiliWatchConfigUpdate,
+  BiliWatchSubscription,
+  BiliWatchSubscriptionRequest,
+  BiliWatchDelivery,
 } from './types'
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -80,4 +88,47 @@ export const api = {
   deleteScheduledTask: (taskId: string) => request<void>(`/api/scheduled-tasks/${taskId}`, { method: 'DELETE' }),
   runScheduledTask: (taskId: string) => request<{ status: string }>(`/api/scheduled-tasks/${taskId}/run`, { method: 'POST' }),
   scheduledTaskRuns: (taskId: string) => request<TaskRun[]>(`/api/scheduled-tasks/${taskId}/runs`),
+  knowledgeBases: () => request<KnowledgeCollection[]>('/api/knowledge-bases'),
+  createKnowledgeBase: (name: string, description = '') => request<KnowledgeCollection>('/api/knowledge-bases', {
+    method: 'POST', body: JSON.stringify({ name, description }),
+  }),
+  knowledgeDocuments: (collection: string) => request<KnowledgeDocument[]>(`/api/knowledge-bases/${collection}/documents`),
+  uploadKnowledgeDocument: async (collection: string, file: File, title?: string) => {
+    const form = new FormData()
+    form.append('file', file)
+    if (title) form.append('title', title)
+    const response = await fetch(`/api/knowledge-bases/${collection}/documents/upload`, { method: 'POST', body: form })
+    if (!response.ok) throw new Error(`Request failed with HTTP ${response.status}`)
+    return await response.json() as KnowledgeDocument
+  },
+  importKnowledgeUrl: (collection: string, url: string) => request<KnowledgeDocument>(`/api/knowledge-bases/${collection}/documents/url`, {
+    method: 'POST', body: JSON.stringify({ url }),
+  }),
+  deleteKnowledgeDocument: (collection: string, documentId: string) => request<void>(`/api/knowledge-bases/${collection}/documents/${documentId}`, { method: 'DELETE' }),
+  rebuildKnowledge: (collection: string) => request<{ status: string }>(`/api/knowledge-bases/${collection}/rebuild`, { method: 'POST' }),
+  searchKnowledge: (collection: string, query: string, limit = 5) => request<{ found: boolean, results: KnowledgeSearchResult[] }>(`/api/knowledge-bases/${collection}/search`, {
+    method: 'POST', body: JSON.stringify({ query, limit }),
+  }),
+  knowledgeModels: () => request<import('./types').KnowledgeModelConfig>('/api/knowledge/models'),
+  testKnowledgeModel: (payload: { kind: 'embedding' | 'reranker', base_url: string, model: string, api_key: string }) => request<{ ok: boolean, kind: string, dimension?: number, score_count?: number }>('/api/knowledge/models/test', {
+    method: 'POST', body: JSON.stringify(payload),
+  }),
+  importKnowledgeModel: (payload: { kind: 'embedding' | 'reranker', base_url: string, model: string, api_key: string, timeout_seconds?: number }) => request<{ configured: boolean, base_url: string, model: string }>(`/api/knowledge/models`, {
+    method: 'POST', body: JSON.stringify(payload),
+  }),
+  deleteKnowledgeModel: (kind: 'embedding' | 'reranker') => request<void>(`/api/knowledge/models/${kind}`, { method: 'DELETE' }),
+  biliWatchConfig: () => request<BiliWatchConfig>('/api/biliwatch/config'),
+  updateBiliWatchConfig: (config: BiliWatchConfigUpdate) => request<BiliWatchConfig>('/api/biliwatch/config', {
+    method: 'PUT', body: JSON.stringify(config),
+  }),
+  testBiliWatchCookie: () => request<{ ok: boolean }>('/api/biliwatch/cookie/test', { method: 'POST' }),
+  biliWatchSubscriptions: () => request<BiliWatchSubscription[]>('/api/biliwatch/subscriptions'),
+  createBiliWatchSubscription: (subscription: BiliWatchSubscriptionRequest) => request<BiliWatchSubscription>('/api/biliwatch/subscriptions', {
+    method: 'POST', body: JSON.stringify(subscription),
+  }),
+  updateBiliWatchSubscription: (id: string, subscription: BiliWatchSubscriptionRequest) => request<BiliWatchSubscription>(`/api/biliwatch/subscriptions/${id}`, {
+    method: 'PUT', body: JSON.stringify(subscription),
+  }),
+  deleteBiliWatchSubscription: (id: string) => request<void>(`/api/biliwatch/subscriptions/${id}`, { method: 'DELETE' }),
+  biliWatchDeliveries: (limit = 100) => request<BiliWatchDelivery[]>(`/api/biliwatch/deliveries?limit=${limit}`),
 }

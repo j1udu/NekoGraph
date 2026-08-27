@@ -14,8 +14,15 @@ dependencies = [
   "langgraph-checkpoint-sqlite==3.1.1",
   "pydantic>=2.12,<3",
   "pydantic-settings>=2.12,<3",
+  "python-multipart>=0.0.20,<1",
   "uvicorn>=0.34,<1",
   "websockets>=15,<17",
+]
+
+[project.optional-dependencies]
+rag = [
+  "faiss-cpu>=1.9,<2",
+  "numpy>=2,<3",
 ]
 
 [dependency-groups]

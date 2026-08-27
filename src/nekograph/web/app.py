@@ -1,5 +1,7 @@
 """FastAPI boundary for the NekoGraph management dashboard."""
 
+# ruff: noqa: B008
+
 # pyright: reportUnusedFunction=false
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, cast
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi import Path as ApiPath
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -30,8 +32,13 @@ from nekograph.agent.profiles import (
     ModelProfileView,
     profile_view,
 )
+from nekograph.biliwatch.config import BiliWatchConfigUpdate
+from nekograph.biliwatch.models import SubscriptionInput
 from nekograph.bootstrap import RuntimeResources, open_runtime_resources
 from nekograph.config import Settings
+from nekograph.knowledge.config_store import KnowledgeModelConfig
+from nekograph.knowledge.embedding import OpenAICompatibleEmbedding
+from nekograph.knowledge.reranker import OpenAICompatibleReranker
 from nekograph.models import MessageSegment
 from nekograph.protocols.onebot_v11.actions import ActionRecord
 from nekograph.protocols.web_chat import WebChatAdapter
@@ -72,6 +79,34 @@ class ScheduledTaskRequest(ScheduledTaskInput):
     pass
 
 
+class KnowledgeUrlRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=2_000)
+
+
+class KnowledgeSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=2_000)
+    limit: int = Field(default=5, ge=1, le=20)
+
+
+class KnowledgeModelTestRequest(BaseModel):
+    kind: str = Field(pattern=r"^(embedding|reranker)$")
+    base_url: str = Field(min_length=1, max_length=500)
+    model: str = Field(min_length=1, max_length=200)
+    api_key: str = Field(min_length=1, max_length=1_000)
+
+
+class KnowledgeModelImportRequest(KnowledgeModelTestRequest):
+    timeout_seconds: float = Field(default=30.0, gt=0, le=600)
+
+
+class BiliWatchSubscriptionRequest(SubscriptionInput):
+    pass
+
+
+class BiliWatchConfigRequest(BiliWatchConfigUpdate):
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class DashboardContext:
     resources: RuntimeResources
@@ -92,9 +127,7 @@ def _message_content(message: BaseMessage) -> str:
     return message.content if isinstance(message.content, str) else str(message.content)
 
 
-def _history_message(
-    message: BaseMessage, response_time_ms: int | None = None
-) -> HistoryMessage:
+def _history_message(message: BaseMessage, response_time_ms: int | None = None) -> HistoryMessage:
     if isinstance(message, HumanMessage):
         return HistoryMessage(role="user", content=_message_content(message))
     if isinstance(message, ToolMessage):
@@ -137,9 +170,7 @@ def create_dashboard_app(
                 async with open_runtime_resources(configured) as resources:
                     app.state.context = DashboardContext(
                         resources=resources,
-                        chat=WebChatAdapter(
-                            resources.application(conversation_namespace="web:v1")
-                        ),
+                        chat=WebChatAdapter(resources.application(conversation_namespace="web:v1")),
                         logs=logs,
                         started_at=datetime.now(UTC),
                     )
@@ -172,9 +203,7 @@ def create_dashboard_app(
         return {
             "version": __version__,
             "started_at": context.started_at,
-            "uptime_seconds": max(
-                0, int((datetime.now(UTC) - context.started_at).total_seconds())
-            ),
+            "uptime_seconds": max(0, int((datetime.now(UTC) - context.started_at).total_seconds())),
             "model": {
                 "profile_id": active.profile_id,
                 "name": active.name,
@@ -216,9 +245,7 @@ def create_dashboard_app(
         return items
 
     @app.post("/api/scheduled-tasks", status_code=201)
-    async def create_scheduled_task(
-        body: ScheduledTaskRequest, request: Request
-    ) -> dict[str, Any]:
+    async def create_scheduled_task(body: ScheduledTaskRequest, request: Request) -> dict[str, Any]:
         try:
             task = await _context(request).resources.scheduler.create(body)
         except SchedulingError as exc:
@@ -283,9 +310,7 @@ def create_dashboard_app(
             response_time_ms=elapsed_ms,
         )
 
-    @app.get(
-        "/api/chat/{conversation_id}/messages", response_model=list[HistoryMessage]
-    )
+    @app.get("/api/chat/{conversation_id}/messages", response_model=list[HistoryMessage])
     async def chat_history(
         conversation_id: ConversationId, request: Request
     ) -> list[HistoryMessage]:
@@ -304,9 +329,7 @@ def create_dashboard_app(
         return history
 
     @app.post("/api/chat/{conversation_id}/reset", response_model=ChatResponse)
-    async def reset_chat(
-        conversation_id: ConversationId, request: Request
-    ) -> ChatResponse:
+    async def reset_chat(conversation_id: ConversationId, request: Request) -> ChatResponse:
         context = _context(request)
         response = await context.chat.send(conversation_id, "/reset")
         if response is None:
@@ -328,13 +351,9 @@ def create_dashboard_app(
         return [profile_view(profile) for profile in profiles]
 
     @app.post("/api/models/import", response_model=list[ModelProfileView])
-    async def import_models(
-        body: ModelImportRequest, request: Request
-    ) -> list[ModelProfileView]:
+    async def import_models(body: ModelImportRequest, request: Request) -> list[ModelProfileView]:
         try:
-            profiles = await _context(request).resources.model_profiles.create_many(
-                body.profiles
-            )
+            profiles = await _context(request).resources.model_profiles.create_many(body.profiles)
         except DuplicateModelProfileError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return [profile_view(profile) for profile in profiles]
@@ -412,6 +431,208 @@ def create_dashboard_app(
             for definition in _context(request).resources.tools.definitions()
         ]
 
+    @app.get("/api/knowledge-bases")
+    async def list_knowledge_bases(request: Request) -> list[dict[str, Any]]:
+        return [
+            item.model_dump(mode="json")
+            for item in await _context(request).resources.knowledge.collections()
+        ]
+
+    @app.post("/api/knowledge-bases", status_code=201)
+    async def create_knowledge_base(body: dict[str, str], request: Request) -> dict[str, Any]:
+        try:
+            collection = await _context(request).resources.knowledge.ensure_collection(
+                body.get("name", ""), body.get("description", "")
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return collection.model_dump(mode="json")
+
+    @app.delete("/api/knowledge-bases/{collection}", status_code=204)
+    async def delete_knowledge_base(collection: str, request: Request) -> None:
+        await _context(request).resources.knowledge.delete_collection(collection)
+
+    @app.get("/api/knowledge-bases/{collection}/documents")
+    async def list_knowledge_documents(collection: str, request: Request) -> list[dict[str, Any]]:
+        return [
+            item.model_dump(mode="json")
+            for item in await _context(request).resources.knowledge.documents(collection)
+        ]
+
+    @app.post("/api/knowledge-bases/{collection}/documents/upload", status_code=201)
+    async def upload_knowledge_document(
+        collection: str,
+        request: Request,
+        file: UploadFile = File(...),
+        title: str | None = Form(default=None),
+    ) -> dict[str, Any]:
+        if file.content_type not in {"text/plain", "text/markdown", "text/x-markdown", None}:
+            raise HTTPException(status_code=415, detail="only Markdown and TXT files are supported")
+        content = (await file.read()).decode("utf-8")
+        try:
+            document = await _context(request).resources.knowledge.ingest_text(
+                collection,
+                title=title or file.filename or "uploaded-document",
+                source=file.filename or "uploaded-document",
+                content=content,
+            )
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return document.model_dump(mode="json")
+
+    @app.post("/api/knowledge-bases/{collection}/documents/url", status_code=201)
+    async def import_knowledge_url(
+        collection: str, body: KnowledgeUrlRequest, request: Request
+    ) -> dict[str, Any]:
+        try:
+            document = await _context(request).resources.knowledge.ingest_url(collection, body.url)
+        except Exception as exc:
+            logger.warning(
+                "knowledge_url_import_failed", extra={"url": body.url, "error": str(exc)}
+            )
+            raise HTTPException(status_code=400, detail="URL import failed") from exc
+        return document.model_dump(mode="json")
+
+    @app.delete("/api/knowledge-bases/{collection}/documents/{document_id}", status_code=204)
+    async def delete_knowledge_document(document_id: str, request: Request) -> None:
+        await _context(request).resources.knowledge.delete_document(document_id)
+
+    @app.post("/api/knowledge-bases/{collection}/rebuild")
+    async def rebuild_knowledge_base(collection: str, request: Request) -> dict[str, str]:
+        await _context(request).resources.knowledge.rebuild(collection)
+        return {"status": "completed"}
+
+    @app.post("/api/knowledge-bases/{collection}/search")
+    async def search_knowledge_base(
+        collection: str, body: KnowledgeSearchRequest, request: Request
+    ) -> dict[str, Any]:
+        results = await _context(request).resources.knowledge.search(
+            collection, body.query, body.limit
+        )
+        return {
+            "found": bool(results),
+            "results": [item.model_dump(mode="json") for item in results],
+        }
+
+    @app.get("/api/knowledge/models")
+    async def knowledge_model_config(request: Request) -> dict[str, Any]:
+        return _context(request).resources.knowledge_models.views()
+
+    @app.post("/api/knowledge/models/test")
+    async def test_knowledge_model(
+        body: KnowledgeModelTestRequest, request: Request
+    ) -> dict[str, Any]:
+        del request
+        try:
+            if body.kind == "embedding":
+                provider = OpenAICompatibleEmbedding(
+                    base_url=body.base_url, model=body.model, api_key=body.api_key
+                )
+                vectors = await provider.embed(["NekoGraph knowledge model test"])
+                return {"ok": True, "kind": body.kind, "dimension": len(vectors[0])}
+            provider = OpenAICompatibleReranker(
+                base_url=body.base_url, model=body.model, api_key=body.api_key
+            )
+            scores = await provider.rerank("knowledge model test", ["NekoGraph test document"], 1)
+            return {"ok": True, "kind": body.kind, "score_count": len(scores)}
+        except Exception as exc:
+            logger.warning(
+                "knowledge_model_test_failed",
+                extra={"kind": body.kind, "model": body.model, "error": str(exc)},
+            )
+            raise HTTPException(status_code=502, detail="知识模型连接测试失败") from exc
+
+    @app.post("/api/knowledge/models", status_code=201)
+    async def import_knowledge_model(
+        body: KnowledgeModelImportRequest, request: Request
+    ) -> dict[str, Any]:
+        config = KnowledgeModelConfig.model_validate(body.model_dump())
+        await _context(request).resources.knowledge_models.save(config)
+        return _context(request).resources.knowledge_models.views()[body.kind]
+
+    @app.delete("/api/knowledge/models/{kind}", status_code=204)
+    async def delete_knowledge_model(kind: str, request: Request) -> None:
+        if kind not in {"embedding", "reranker"}:
+            raise HTTPException(status_code=404, detail="knowledge model was not found")
+        await _context(request).resources.knowledge_models.delete(kind)
+
+    @app.get("/api/biliwatch/config")
+    async def biliwatch_config(request: Request) -> dict[str, object]:
+        return _context(request).resources.biliwatch_config.view()
+
+    @app.put("/api/biliwatch/config")
+    async def update_biliwatch_config(
+        body: BiliWatchConfigRequest, request: Request
+    ) -> dict[str, object]:
+        context = _context(request)
+        await context.resources.biliwatch_config.update(body)
+        await context.resources.biliwatch.sync_polling_schedule()
+        return context.resources.biliwatch_config.view()
+
+    @app.post("/api/biliwatch/cookie/test")
+    async def test_biliwatch_cookie(request: Request) -> dict[str, object]:
+        try:
+            await _context(request).resources.biliwatch.client.test_cookie()
+        except Exception as exc:
+            logger.warning("biliwatch_cookie_test_failed", extra={"error": str(exc)})
+            raise HTTPException(status_code=502, detail="B 站 Cookie 测试失败") from exc
+        return {"ok": True}
+
+    @app.get("/api/biliwatch/subscriptions")
+    async def list_biliwatch_subscriptions(request: Request) -> list[dict[str, object]]:
+        return [
+            item.model_dump(mode="json")
+            for item in await _context(request).resources.biliwatch_store.subscriptions()
+        ]
+
+    @app.post("/api/biliwatch/subscriptions", status_code=201)
+    async def create_biliwatch_subscription(
+        body: BiliWatchSubscriptionRequest, request: Request
+    ) -> dict[str, object]:
+        item = await _context(request).resources.biliwatch.save_subscription(body)
+        return item.model_dump(mode="json")
+
+    @app.put("/api/biliwatch/subscriptions/{subscription_id}")
+    async def update_biliwatch_subscription(
+        subscription_id: str,
+        body: BiliWatchSubscriptionRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        resources = _context(request).resources
+        current = await resources.biliwatch_store.get(subscription_id)
+        if current is None:
+            raise HTTPException(status_code=404, detail="BiliWatch subscription not found")
+        if (
+            current.bot_id != body.bot_id
+            or current.group_id != body.group_id
+            or current.uid != body.uid
+        ):
+            raise HTTPException(status_code=409, detail="subscription target cannot be changed")
+        item = await resources.biliwatch_store.save_subscription(
+            body,
+            uname=current.uname,
+            last_dynamic_timestamp=current.last_dynamic_timestamp,
+        )
+        await resources.biliwatch.sync_polling_schedule()
+        return item.model_dump(mode="json")
+
+    @app.delete("/api/biliwatch/subscriptions/{subscription_id}", status_code=204)
+    async def delete_biliwatch_subscription(
+        subscription_id: str, request: Request
+    ) -> None:
+        deleted = await _context(request).resources.biliwatch.delete_subscription(subscription_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="BiliWatch subscription not found")
+
+    @app.get("/api/biliwatch/deliveries")
+    async def list_biliwatch_deliveries(
+        request: Request, limit: Annotated[int, Query(ge=1, le=500)] = 100
+    ) -> list[dict[str, object]]:
+        return [
+            item.model_dump(mode="json")
+            for item in await _context(request).resources.biliwatch_store.deliveries(limit)
+        ]
+
     @app.get("/api/config")
     async def config(request: Request) -> dict[str, Any]:
         current = _context(request).resources.settings
@@ -439,6 +660,11 @@ def create_dashboard_app(
                 "allow_dangerous": current.allow_dangerous_tools,
                 "approval_ttl_seconds": current.tool_approval_ttl_seconds,
             },
+            "knowledge": {
+                "database": str(current.knowledge_path),
+                **_context(request).resources.knowledge_models.views(),
+            },
+            "biliwatch": _context(request).resources.biliwatch_config.view(),
         }
 
     @app.get("/api/logs")

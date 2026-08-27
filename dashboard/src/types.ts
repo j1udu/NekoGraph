@@ -74,6 +74,40 @@ export interface ToolInfo {
   required_permissions: string[]
 }
 
+export interface KnowledgeCollection {
+  name: string
+  description: string
+  created_at: string
+  updated_at: string
+}
+
+export interface KnowledgeDocument {
+  document_id: string
+  collection: string
+  title: string
+  source: string
+  source_url: string | null
+  content_hash: string
+  content_length: number
+  chunk_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface KnowledgeSearchResult {
+  chunk_id: string
+  document_id: string
+  collection: string
+  title: string
+  source: string
+  source_url: string | null
+  heading_path: string
+  content: string
+  score: number
+  retrieval_method: string
+  metadata: Record<string, unknown>
+}
+
 export interface HistoryMessage {
   role: string
   content: string
@@ -125,6 +159,68 @@ export interface DashboardConfig {
     allow_dangerous: boolean
     approval_ttl_seconds: number
   }
+  knowledge: KnowledgeModelConfig
+  biliwatch: BiliWatchConfig
+}
+
+export interface KnowledgeModelConfig {
+  embedding: { configured: boolean, base_url: string | null, model: string | null }
+  reranker: { configured: boolean, base_url: string | null, model: string | null }
+  database?: string
+}
+
+export interface BiliWatchConfig {
+  admins: string[]
+  poll_interval_seconds: number
+  sessdata_configured: boolean
+  bili_jct_configured: boolean
+  dede_user_id_configured: boolean
+}
+
+export interface BiliWatchConfigUpdate {
+  admins: string[]
+  poll_interval_seconds: number
+  sessdata?: string | null
+  bili_jct?: string | null
+  dede_user_id?: string | null
+}
+
+export interface BiliWatchSubscriptionRequest {
+  bot_id: string
+  group_id: string
+  uid: string
+  watch_dynamic: boolean
+  watch_live: boolean
+  at_all_dynamic: boolean
+  at_all_live: boolean
+  filter_forward: boolean
+  enabled: boolean
+}
+
+export interface BiliWatchSubscription extends BiliWatchSubscriptionRequest {
+  subscription_id: string
+  uname: string
+  last_dynamic_timestamp: number | null
+  was_live: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface BiliWatchDelivery {
+  delivery_id: string
+  subscription_id: string
+  content_key: string
+  bot_id: string
+  group_id: string
+  uid: string
+  kind: 'dynamic' | 'live'
+  status: 'pending' | 'sent' | 'failed'
+  attempts: number
+  message_id: string | null
+  error: string | null
+  created_at: string
+  updated_at: string
+  sent_at: string | null
 }
 
 export type ScheduleKind = 'cron' | 'interval' | 'once'

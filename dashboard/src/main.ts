@@ -10,6 +10,8 @@ import OverviewView from './views/OverviewView.vue'
 import SettingsView from './views/SettingsView.vue'
 import ToolsView from './views/ToolsView.vue'
 import ScheduledTasksView from './views/ScheduledTasksView.vue'
+import KnowledgeView from './views/KnowledgeView.vue'
+import BiliWatchView from './views/BiliWatchView.vue'
 import './styles.css'
 import './styles/tokens.css'
 import './styles/layout.css'
@@ -24,6 +26,8 @@ const router = createRouter({
     { path: '/models', name: 'models', component: ModelsView },
     { path: '/tools', name: 'tools', component: ToolsView },
     { path: '/scheduled-tasks', name: 'scheduled-tasks', component: ScheduledTasksView },
+    { path: '/knowledge', name: 'knowledge', component: KnowledgeView },
+    { path: '/biliwatch', name: 'biliwatch', component: BiliWatchView },
     { path: '/logs', name: 'logs', component: LogsView },
     { path: '/settings', name: 'settings', component: SettingsView },
   ],

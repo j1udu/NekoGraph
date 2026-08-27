@@ -33,6 +33,17 @@ class Settings(BaseSettings):
     onebot_action_max_concurrency: int = Field(default=16, ge=1, le=100)
     onebot_send_min_interval_seconds: float = Field(default=0.5, ge=0, le=60)
     checkpoint_path: Path = Path("data/checkpoints.sqlite")
+    knowledge_path: Path = Path("data/knowledge.sqlite")
+    knowledge_index_path: Path = Path("data/knowledge.faiss")
+    knowledge_models_path: Path = Path("data/knowledge-models.json")
+    knowledge_embedding_base_url: str | None = None
+    knowledge_embedding_model: str | None = None
+    knowledge_embedding_api_key: SecretStr | None = None
+    knowledge_embedding_timeout_seconds: float = Field(default=30.0, gt=0)
+    knowledge_rerank_base_url: str | None = None
+    knowledge_rerank_model: str | None = None
+    knowledge_rerank_api_key: SecretStr | None = None
+    knowledge_rerank_timeout_seconds: float = Field(default=30.0, gt=0)
     conversation_metadata_path: Path = Path("data/conversations.sqlite")
     group_conversation_mode: GroupConversationMode = GroupConversationMode.PER_USER
     group_wake_prefixes: tuple[str, ...] = ("neko",)
@@ -49,6 +60,13 @@ class Settings(BaseSettings):
     tool_execution_ledger_path: Path = Path("data/tool-executions.sqlite")
     scheduled_tasks_path: Path = Path("data/scheduled-tasks.sqlite")
     scheduled_task_max_concurrency: int = Field(default=8, ge=1, le=100)
+    biliwatch_path: Path = Path("data/biliwatch.sqlite")
+    biliwatch_config_path: Path = Path("data/biliwatch-config.json")
+    biliwatch_admins: tuple[str, ...] = ()
+    biliwatch_poll_interval_seconds: int = Field(default=30, ge=20, le=3600)
+    biliwatch_sessdata: SecretStr | None = None
+    biliwatch_bili_jct: SecretStr | None = None
+    biliwatch_dede_user_id: SecretStr | None = None
     tool_permissions: tuple[str, ...] = ("demo_file:write",)
     allow_dangerous_tools: bool = False
     tool_approval_ttl_seconds: float = Field(default=900.0, gt=0)

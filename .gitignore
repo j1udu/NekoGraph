@@ -13,4 +13,5 @@ build/
 docs/
 dashboard/node_modules/
 data/*.sqlite*
+data/*.json
 data/tool-sandbox/

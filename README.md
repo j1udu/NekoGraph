@@ -13,6 +13,7 @@ A LangGraph-native QQ Agent Framework powered by NapCat and OneBot v11.
 - OpenAI-compatible 多模型配置、导入与热切换
 - SQLite 持久化定时任务（Cron、间隔、单次）、执行历史与 Dashboard 管理
 - 统一 OneBot 主动发送、查询与群管理动作，支持连接复用、限流和 SQLite 审计
+- B站 UP 主动态/直播监测、按群订阅、去重重试和投递记录（BiliWatch）
 
 ## 本地部署
 
@@ -28,6 +29,8 @@ uv run nekograph dashboard
 管理界面默认地址：<http://127.0.0.1:5190>
 
 可在管理界面的“模型”页面添加 OpenAI-compatible 模型；未配置时使用 Fake Model。
+
+B站推送在管理界面的“B站推送”页面配置管理员、B站 Cookie、轮询间隔和 QQ 群订阅。后台轮询不调用 LLM；需要 B 站登录 Cookie 才能稳定读取动态接口。
 
 需要同时运行 OneBot Gateway、Dashboard 和定时任务时：
 
